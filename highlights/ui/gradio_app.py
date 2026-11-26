@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+import argparse
+from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
+
+from ..cli import analyze
+
+
+def _file_path(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value.get("path")
+    return getattr(value, "name", None) or str(value)
 
 
 def build_app():
@@ -21,19 +33,45 @@ def build_app():
             status = gr.JSON(label="Resultado")
             figure = gr.Image(label="Curva de pontuação")
 
-            def placeholder(video, url, chat, manual, preset, target, aspect):
-                source = video if video is not None else url
+            def run_analysis(video, url, chat, manual, preset, target, aspect):
+                source = _file_path(video)
+                if not source:
+                    source = url.strip() if url else ""
                 if not source:
                     return {"erro": "Selecione um vídeo local ou informe uma URL"}, None
-                return {
-                    "aviso": "Use o comando CLI para processar agora.",
-                    "fonte": str(source),
-                    "preset": preset,
-                    "duracao": target,
-                    "aspecto": aspect,
-                }, None
 
-            run.click(placeholder, [video, url, chat, manual, preset, target, aspect], [status, figure])
+                run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+                output = Path("output") / f"web-{run_id}"
+                output.mkdir(parents=True, exist_ok=True)
+
+                args = argparse.Namespace(
+                    input=source if not source.startswith(("http://", "https://")) else None,
+                    url=source if source.startswith(("http://", "https://")) else None,
+                    chat=_file_path(chat),
+                    manual=_file_path(manual),
+                    preset=preset,
+                    target_duration=float(target),
+                    max_cuts=None,
+                    aspect=aspect,
+                    cache=str(Path("cache") / f"web-{run_id}"),
+                    output=str(output),
+                    review_only=False,
+                )
+
+                try:
+                    analyze(args)
+                    project = output / "project.json"
+                    return {
+                        "ok": True,
+                        "cortes": str(project),
+                        "compilado": str(output / "compilation.mp4"),
+                        "prévias": str(output / "previews"),
+                        "csv": str(output / "cuts.csv"),
+                    }, str(output / "score.png")
+                except Exception as error:
+                    return {"erro": str(error)}, None
+
+            run.click(run_analysis, [video, url, chat, manual, preset, target, aspect], [status, figure])
 
         with gr.Tab("Sobre"):
             gr.Markdown("A seleção usa áudio, chat, heatmap, cenas, silêncio e timestamps manuais. Nenhum modelo de IA decide os cortes.")
