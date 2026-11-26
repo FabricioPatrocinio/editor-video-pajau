@@ -1,0 +1,51 @@
+highlights_10min:
+  target_duration: 600
+  min_cut: 20
+  max_cut: 90
+  max_cuts: null
+  padding_before: 8
+  padding_after: 4
+  min_distance: 12
+  chat_offset: 8
+  order: score
+  aspect: "16:9"
+  export_mode: precise
+  weights:
+    audio: 0.30
+    chat: 0.20
+    heatmap: 0.20
+    scene: 0.15
+    silence: 0.10
+    manual: 0.05
+
+shorts_60s_vertical:
+  target_duration: 60
+  min_cut: 15
+  max_cut: 60
+  max_cuts: 1
+  padding_before: 5
+  padding_after: 3
+  min_distance: 20
+  chat_offset: 8
+  order: score
+  aspect: "9:16"
+  export_mode: precise
+
+react_compilation:
+  target_duration: 900
+  min_cut: 12
+  max_cut: 75
+  padding_before: 6
+  padding_after: 6
+  min_distance: 15
+  chat_offset: 6
+  order: chronological
+  aspect: "16:9"
+  export_mode: precise
+  weights:
+    audio: 0.25
+    chat: 0.25
+    heatmap: 0.15
+    scene: 0.10
+    silence: 0.10
+    manual: 0.15

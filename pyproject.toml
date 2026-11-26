@@ -1,0 +1,25 @@
+[project]
+name = "editor-video-pajau"
+version = "0.1.0"
+description = "Gerador open-source de compilados de melhores momentos sem IA/ML"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "PyYAML>=6.0",
+  "tqdm>=4.66",
+  "matplotlib>=3.8",
+  "yt-dlp>=2024.12.0",
+  "gradio>=4.44",
+]
+
+[project.scripts]
+pajau = "highlights.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["highlights*"]
+exclude = ["cache*", "output*", "configs*"]
