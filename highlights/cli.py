@@ -17,6 +17,7 @@ from .export.timeline import write_edl, write_mlt_xml
 from .models import Cut, Project
 from .scoring.scoring import combine_signals
 from .selection.selection import select_cuts
+from .selection.deduplicate import deduplicate_cuts
 
 
 def analyze(args: argparse.Namespace) -> int:
@@ -75,6 +76,8 @@ def analyze(args: argparse.Namespace) -> int:
 
     project = Project(source=source, video_path=str(video), duration=duration, settings=settings, cuts=cuts)
     generate_cut_previews(video, cuts, output / "previews")
+    cuts = deduplicate_cuts(cuts, output / "previews")
+    project = Project(source=source, video_path=str(video), duration=duration, settings=settings, cuts=cuts)
     write_project(project, output / "project.json")
     write_csv(cuts, output / "cuts.csv")
     write_json(cuts, output / "cuts.json")

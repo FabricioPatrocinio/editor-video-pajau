@@ -36,34 +36,34 @@ def _time_text(seconds: float) -> str:
 
 
 def build_app():
-    with gr.Blocks(title="Pajau - Revisão") as app:
-        gr.Markdown("# Pajau\nAnalise, revise miniaturas e escolha somente os cortes desejados.")
+    with gr.Blocks(title="Pajau - Revisão rápida") as app:
+        gr.Markdown("# Pajau\nEscolha um vídeo e avalie cada candidato com **Gostei** ou **Não quero**.")
+
         project_state = gr.State("")
+        choices_state = gr.State([])
+        accepted_state = gr.State([])
+        index_state = gr.State(0)
+        preview_state = gr.State({})
 
-        with gr.Tab("1. Analisar"):
-            video = gr.File(label="Vídeo local", file_types=[".mp4", ".mkv", ".mov", ".webm"])
-            url = gr.Textbox(label="Ou URL do YouTube", placeholder="https://youtube.com/watch?v=...")
-            manual = gr.File(label="Timestamps positivos (vitória, boss vencido)", file_types=[".txt", ".csv"])
-            ignore = gr.Textbox(label="Intervalos a ignorar", placeholder="0-600, 10800-11200")
-            preset = gr.Dropdown(["highlights_10min", "shorts_60s_vertical", "react_compilation"], value="highlights_10min")
-            target = gr.Number(value=600, label="Duração final em segundos")
-            aspect = gr.Radio(["16:9", "9:16"], value="16:9")
-            analyze_button = gr.Button("Gerar candidatos para revisão", variant="primary")
-            status = gr.JSON(label="Resultado")
+        video = gr.File(label="Vídeo original", file_types=[".mp4", ".mkv", ".mov", ".webm"])
+        manual = gr.File(label="Momentos positivos opcionais", file_types=[".txt", ".csv"])
+        ignore = gr.Textbox(label="Partes a ignorar, opcional", placeholder="Ex.: 0-600, 10800-11200")
+        find_button = gr.Button("Encontrar candidatos", variant="primary")
 
-        with gr.Tab("2. Revisar"):
-            gallery = gr.Gallery(label="Início, meio e fim dos cortes", columns=3, height="auto")
-            accepted = gr.CheckboxGroup(label="Cortes aceitos", choices=[])
-            selected = gr.Dropdown(label="Corte selecionado", choices=[])
-            new_start = gr.Textbox(label="Novo início")
-            new_end = gr.Textbox(label="Novo fim")
-            export_button = gr.Button("Exportar cortes aceitos", variant="primary")
-            export_status = gr.JSON(label="Exportação")
+        progress = gr.Markdown("Escolha um vídeo e clique em Encontrar candidatos.")
+        gallery = gr.Gallery(label="Candidato atual", columns=3, height="auto")
 
-        def run_analysis(video, url, manual, ignore, preset, target, aspect):
-            source = _file_path(video) or (url.strip() if url else "")
+        with gr.Row():
+            reject_button = gr.Button("Não quero", size="lg")
+            approve_button = gr.Button("Gostei", variant="primary", size="lg")
+
+        export_button = gr.Button("Gerar vídeo com os gostados", variant="primary")
+        result = gr.Textbox(label="Vídeo final", interactive=False)
+
+        def run_analysis(video, manual, ignore):
+            source = _file_path(video)
             if not source:
-                return {"erro": "Selecione um vídeo local ou informe uma URL"}, [], [], "", []
+                return "Escolha um vídeo primeiro.", [], "", [], [], 0, {}
 
             run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
             output = Path("output") / f"web-{run_id}"
@@ -78,14 +78,14 @@ def build_app():
                     pass
 
             args = argparse.Namespace(
-                input=source if not source.startswith(("http://", "https://")) else None,
-                url=source if source.startswith(("http://", "https://")) else None,
+                input=source,
+                url=None,
                 chat=None,
                 manual=_file_path(manual),
-                preset=preset,
-                target_duration=float(target),
+                preset="highlights_10min",
+                target_duration=600,
                 max_cuts=None,
-                aspect=aspect,
+                aspect="16:9",
                 cache=str(Path("cache") / f"web-{run_id}"),
                 output=str(output),
                 review_only=True,
@@ -96,48 +96,75 @@ def build_app():
                 analyze(args)
                 project_path = output / "project.json"
                 project = json.loads(project_path.read_text(encoding="utf-8"))
-                project["ignore_intervals"] = ignore_intervals
-                project_path.write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
-
                 choices = []
-                gallery_items = []
+                previews = {}
+
                 for index, cut in enumerate(project["cuts"], 1):
-                    label = f"{index:02d}  {_time_text(cut['start'])}–{_time_text(cut['end'])}  score={cut['score']:.2f}"
-                    choices.append(label)
-                    for position in ("start", "middle", "end"):
-                        image = output / "previews" / f"clip_{index:02d}_{position}.jpg"
-                        if image.exists():
-                            gallery_items.append((str(image), label))
+                    choices.append(f"Corte {index:02d} — {_time_text(cut['start'])} a {_time_text(cut['end'])}")
+                    previews[index - 1] = [
+                        (str(output / "previews" / f"clip_{index:02d}_{position}.jpg"), position)
+                        for position in ("start", "middle", "end")
+                        if (output / "previews" / f"clip_{index:02d}_{position}.jpg").exists()
+                    ]
 
-                return {"ok": True, "projeto": str(project_path)}, gallery_items, choices, str(output), choices
+                if not choices:
+                    return "Nenhum candidato encontrado.", [], str(output), [], [], 0, {}
+
+                return f"Candidato 1 de {len(choices)}", previews[0], str(output), choices, [], 0, previews
             except Exception as error:
-                return {"erro": str(error)}, [], [], "", []
+                return f"Erro: {error}", [], "", [], [], 0, {}
 
-        def export_selected(project_dir, choices_selected):
+        def decide(index, choices, accepted, previews, liked):
+            if not choices:
+                return "Nenhum candidato para avaliar.", [], choices, accepted, index, previews
+
+            if liked:
+                accepted = list(dict.fromkeys(accepted + [choices[index]]))
+
+            next_index = index + 1
+            if next_index >= len(choices):
+                return f"Concluído — {len(accepted)} corte(s) gostado(s).", [], choices, accepted, next_index, previews
+
+            return f"Candidato {next_index + 1} de {len(choices)}", previews.get(next_index, []), choices, accepted, next_index, previews
+
+        def export_selected(project_dir, accepted):
             if not project_dir:
-                return {"erro": "Gere os candidatos primeiro"}
+                return "Encontre os candidatos primeiro."
+
             output = Path(project_dir)
             project = json.loads((output / "project.json").read_text(encoding="utf-8"))
-
             accepted_cuts = []
-            for index, raw in enumerate(project["cuts"]):
-                label = f"{index + 1:02d}  {_time_text(raw['start'])}–{_time_text(raw['end'])}  score={raw['score']:.2f}"
-                if label in (choices_selected or []):
+
+            for index, cut in enumerate(project["cuts"]):
+                label = f"Corte {index + 1:02d} — {_time_text(cut['start'])} a {_time_text(cut['end'])}"
+                if label in accepted:
                     from ..models import Cut
-                    accepted_cuts.append(Cut(start=raw["start"], end=raw["end"], score=raw["score"], contributions=raw.get("contributions", {})))
+                    accepted_cuts.append(Cut(start=cut["start"], end=cut["end"], score=cut["score"], contributions=cut.get("contributions", {})))
 
             if not accepted_cuts:
-                return {"erro": "Nenhum corte aceito"}
+                return "Você ainda não marcou nenhum corte como Gostei."
 
             from ..export.ffmpeg import export_cuts, export_compilation
-            clips = export_cuts(project["video_path"], accepted_cuts, output / "clips_approved", project["settings"]["aspect"], project["settings"]["export_mode"])
-            compiled = export_compilation(clips, output / "compilation-approved.mp4")
-            return {"ok": True, "clips": len(clips), "compilado": str(compiled)}
+            clips = export_cuts(project["video_path"], accepted_cuts, output / "clips_gostados", "16:9", project["settings"]["export_mode"])
+            compiled = export_compilation(clips, output / "compilation-gostados.mp4")
+            return str(compiled)
 
-        analyze_button.click(run_analysis, [video, url, manual, ignore, preset, target, aspect], [status, gallery, accepted, project_state, selected])
-        export_button.click(export_selected, [project_state, accepted], export_status)
+        find_button.click(
+            run_analysis,
+            [video, manual, ignore],
+            [progress, gallery, project_state, choices_state, accepted_state, index_state, preview_state],
+        )
 
-        with gr.Tab("Sobre"):
-            gr.Markdown("A revisão humana vem primeiro. Depois será possível ativar uma classificação visual local opcional.")
+        approve_button.click(
+            decide,
+            [index_state, choices_state, accepted_state, preview_state, gr.State(True)],
+            [progress, gallery, choices_state, accepted_state, index_state, preview_state],
+        )
+        reject_button.click(
+            decide,
+            [index_state, choices_state, accepted_state, preview_state, gr.State(False)],
+            [progress, gallery, choices_state, accepted_state, index_state, preview_state],
+        )
+        export_button.click(export_selected, [project_state, accepted_state], result)
 
     return app
