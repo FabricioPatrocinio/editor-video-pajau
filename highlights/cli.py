@@ -32,6 +32,10 @@ def analyze(args: argparse.Namespace) -> int:
         settings.max_cuts = args.max_cuts
     if args.aspect:
         settings.aspect = args.aspect
+    if getattr(args, "ignore_intervals", None):
+        settings.ignore_intervals = args.ignore_intervals
+    elif getattr(args, "ignore", None):
+        settings.ignore_intervals = [list(interval) for interval in args.ignore]
 
     source = args.url if args.url else args.input
     if not source:
@@ -108,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--cache", default="cache")
     analyze_parser.add_argument("--output", default="output")
     analyze_parser.add_argument("--review-only", action="store_true", help="Gerar cortes e prévias sem criar o compilado")
+    analyze_parser.add_argument("--ignore", action="append", nargs=2, type=float, metavar=("START", "END"), help="Intervalo a ignorar em segundos")
     analyze_parser.set_defaults(func=analyze)
 
     ui_parser = sub.add_parser("ui", help="Abrir interface Gradio")
