@@ -5,11 +5,19 @@ Transforma uma live longa em um vídeo de melhores momentos. Você diz o que que
 ## Começar
 
 ```bash
-sudo apt install ffmpeg python3-venv
+sudo apt install ffmpeg python3-venv   # Mac: brew install ffmpeg
 make instalar
 ```
 
-Por padrão a IA usa **a sua assinatura do Claude**, pelo Claude Code (`claude` instalado e logado). Não precisa de chave nem de créditos.
+O `make instalar` pergunta qual IA você vai usar e confere o que falta. Para trocar depois: `make setup`.
+
+| Opção | Precisa de |
+|---|---|
+| Claude pela assinatura (padrão) | Plano Pro ou Max e o [Claude Code](https://claude.com/claude-code) logado. Sem custo extra. |
+| Claude por API | Chave e créditos em [platform.claude.com](https://platform.claude.com/settings/keys) |
+| OpenAI por API | Chave e créditos em [platform.openai.com](https://platform.openai.com/api-keys) |
+
+Tudo roda no seu computador: o vídeo nunca sai da sua máquina.
 
 ## Usar
 
@@ -45,3 +53,15 @@ Tudo fica no `.env`; os valores possíveis estão em `.env.example`. O principal
 | `PAJAU_CLAUDE_VIA` | `assinatura` (padrão, sem custo extra) ou `api` (créditos) |
 | `PAJAU_TRANSCRIBE` | `true` transcreve as falas (melhora muito as escolhas) |
 | `PAJAU_AI_DAILY_LIMIT_USD` | trava de gasto por dia |
+
+## Apoie
+
+O Pajau é livre e gratuito. Se ele te poupou horas de edição, considere um Pix:
+
+**Chave Pix:** `PIX_AQUI`
+
+## Contribuir
+
+Achou um bug ou tem uma ideia? Abra uma [issue](../../issues). Pull requests são bem-vindos.
+
+Licença [MIT](LICENSE).

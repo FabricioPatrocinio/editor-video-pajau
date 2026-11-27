@@ -3,14 +3,17 @@ MIN ?= 10
 PEDIDO ?=
 IGNORAR ?=
 
-.PHONY: instalar ui cortar plano testes
+.PHONY: instalar setup ui cortar plano testes
 
 instalar: ## cria o ambiente e instala tudo
 	test -d .venv || python3 -m venv .venv
 	$(PY) -m pip install -q --upgrade pip
 	$(PY) -m pip install -q -e ".[transcricao]"
 	test -f .env || cp .env.example .env
-	@echo "Pronto. Coloque sua ANTHROPIC_API_KEY no arquivo .env"
+	$(PY) -m highlights.setup
+
+setup: ## escolhe a IA (assinatura ou chave) e confere o que falta
+	$(PY) -m highlights.setup
 
 ui: ## abre a interface no navegador
 	$(PY) main.py ui
