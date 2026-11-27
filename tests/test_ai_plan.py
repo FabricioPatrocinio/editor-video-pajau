@@ -86,7 +86,6 @@ def test_request_puts_fixed_part_first_and_briefing_last(tmp_path):
     candidates = [Candidate("evento-01", 10.0, 80.0, 0.9, [str(image)], transcript="consegui!")]
     provider = FakeProvider({"summary": "", "approved": [], "rejected": []})
     style.save_style_text("Canal de soulslike")
-    style.record_feedback("morte_engracada", "morreu de novo", liked=False)
 
     build_review_plan(candidates, "Quero bosses", 600.0, avoid="menus", provider=provider)
     parts = provider.parts
@@ -99,7 +98,7 @@ def test_request_puts_fixed_part_first_and_briefing_last(tmp_path):
     assert len(cache_marks) == 1
     after = " ".join(part.text for part in parts[cache_marks[0] + 1:])
     assert "Quero bosses" in after and "menus" in after
-    assert "soulslike" in after and "recusou [morte_engracada]" in after
+    assert "soulslike" in after and "recusou" not in after  # o aprendizado automático saiu
 
 
 def test_compose_briefing_from_quick_fields():

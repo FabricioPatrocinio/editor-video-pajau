@@ -5,7 +5,7 @@ Você diz em poucas palavras o que quer ("vitórias contra boss"), a IA escolhe 
 
 - Roda no seu computador: o vídeo nunca sai da sua máquina.
 - Usa a sua assinatura do Claude, sem custo extra. Também funciona com chave de API do Claude ou da OpenAI.
-- Aprende o seu gosto a cada "Gostei" e "Não quero".
+- Faz vídeo horizontal e Short vertical, com legenda, enquadramento e capa automáticos.
 
 ## Instalar
 
@@ -83,9 +83,20 @@ Mudou de ideia? Rode `make setup` para escolher de novo.
 make ui
 ```
 
-O navegador abre sozinho (se não abrir, acesse http://127.0.0.1:7860). Escolha o vídeo da live, escreva o que você quer e clique para analisar. Confira os trechos, marque "Gostei" ou "Não quero" e gere o vídeo.
+O navegador abre sozinho (se não abrir, acesse http://127.0.0.1:7860). Escolha o vídeo da live, escreva o que você quer e clique para analisar. Todos os trechos escolhidos já entram: confira e tire o que não quiser. Depois é só gerar.
 
 Quer um Short? Escolha **📱 Short 9:16** e clique em **👀 Ver como fica** antes de gerar.
+
+## Quanto tempo deve ter o vídeo
+
+A tela já sugere a duração quando você escolhe o formato:
+
+| Formato | Sugestão | Por quê |
+|---|---|---|
+| Horizontal 16:9 | **8 a 12 min** | Fato oficial: a partir de 8 min o YouTube libera anúncios no meio do vídeo ([ajuda do YouTube](https://support.google.com/youtube/answer/6175006)). |
+| Short 9:16 | **30 a 60 s** | Shorts podem ter até 3 min. Não há estudo independente sobre o tamanho ideal: os levantamentos de empresas do setor variam (15–35 s, 30–45 s, 35–58 s), mas concordam que Shorts curtos são vistos até o fim com mais frequência, e isso pesa na recomendação ([resumo 1](https://ytshark.com/ideal-youtube-shorts-length/), [resumo 2](https://www.toptal.com/creator/post/youtube-shorts-length)). |
+
+Vale mais o momento estar completo do que bater o número. Confira a retenção dos seus vídeos no YouTube Studio e ajuste.
 
 ## Onde a IA é usada (e quanto gasta)
 

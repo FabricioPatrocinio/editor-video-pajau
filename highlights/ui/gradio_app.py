@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from pathlib import Path
 
 import gradio as gr
 
 from ..ai.config import check_ai_ready, load_ai_settings
-from ..ai.style import MOMENT_TYPES, ORDERS, VIDEO_TYPES, compose_briefing, load_style, record_feedback, save_style_text
+from ..ai.style import MOMENT_TYPES, ORDERS, VIDEO_TYPES, compose_briefing, load_style, save_style_text
 from ..analysis.transcribe import transcription_enabled
 from ..export.transitions import TRANSITIONS, make_preview
 from ..export.covers import retext_cover, scene_candidates, scenes_sheet, use_scene
@@ -53,7 +54,7 @@ CSS = """
 """
 SCROLL_TOPO = "() => window.scrollTo({top: 0, behavior: 'smooth'})"
 SCROLL_GERAR = "() => document.getElementById('pajau-gerar')?.scrollIntoView({behavior: 'smooth', block: 'start'})"
-# Depois do último Gostei/Não quero, leva a pessoa até o "Gerar vídeo".
+# Depois do último trecho revisado, leva a pessoa até o "Gerar vídeo".
 SCROLL_SE_ACABOU = ("() => { const t = document.querySelector('#pj-review-video')?.closest('.pj-card')?.innerText || '';"
                     " if (t.includes('Revisão concluída')) " + SCROLL_GERAR[6:] + "; }")
 
@@ -119,16 +120,37 @@ def _status_text() -> str:
     return f"IA: **{settings.label}** · análise: **{mode}** · transcrição: **{transcription}**"
 
 
-def _overview(plan: list[dict], accepted: list[str] | None = None) -> str:
+# Durações sugeridas por formato (veja o README: "Quanto tempo deve ter o vídeo").
+DURATION = {
+    "16:9": dict(label="Duração (minutos)", value=10, minimum=1, maximum=60,
+                 info="Sugestão: 8 a 12 min. A partir de 8 min o YouTube libera anúncios no meio do vídeo."),
+    "9:16": dict(label="Duração (segundos)", value=45, minimum=5, maximum=180,
+                 info="Sugestão: 30 a 60 s. Shorts podem ter até 3 min, mas os curtos são vistos até o fim com mais frequência."),
+}
+TRANSITION_NAMES = [("Corte seco (padrão)", "corte"), ("Dissolver", "fade"),
+                    ("Escurecer (mudou de assunto)", "fade_preto"), ("Deslizar", "deslizar")]
+
+
+def target_seconds(duration, aspect: str) -> float:
+    """A duração vem em segundos no Short e em minutos no vídeo horizontal."""
+    value = float(duration or DURATION.get(aspect, DURATION["16:9"])["value"])
+    return value if aspect == "9:16" else value * 60
+
+
+def friendly_reason(text: str) -> str:
+    """Troca os "t=544" que a IA escreve pelo horário da live (9:04)."""
+    return re.sub(r"\bt=(\d+(?:\.\d+)?)", lambda m: _time_text(float(m.group(1))), text or "")
+
+
+def _overview(plan: list[dict], kept: list[int] | None = None) -> str:
     if not plan:
         return "Ainda não existe um plano."
-    total = sum(item["end"] - item["start"] for item in plan)
-    lines = [f"**{len(plan)} trechos · {_time_text(total)} de vídeo**\n"]
-    for index, item in enumerate(plan, 1):
-        mark = ("✅ " if item["id"] in accepted else "▫️ ") if accepted is not None else ""
-        transition = "" if index == 1 else f" ⟶ _{item['transition']}_"
-        lines.append(f"{index}. {mark}`{_time_text(item['start'])}–{_time_text(item['end'])}` **{item['kind']}**{transition} — {item['reason']}")
-    return "\n".join(lines)
+    lines = []
+    for index, item in enumerate(plan):
+        mark = ("✅" if index in kept else "❌") if kept is not None else "•"
+        lines.append(f"{mark} **{index + 1}. {item.get('chapter') or item['kind']}** · "
+                     f"{_time_text(item['start'])}–{_time_text(item['end'])} — {friendly_reason(item['reason'])}")
+    return "\n\n".join(lines)
 
 
 LAYOUT_NAMES = {code: name for name, code in LAYOUTS.items()}
@@ -179,9 +201,9 @@ def _nav(step: int, plan: list[dict] | None = None, index: int = 0):
 
 
 def _view(output: str, plan: list[dict], transcripts: dict, index: int):
-    """Título, prévia em vídeo, motivo, transcrição e transição do trecho atual."""
+    """Título, prévia em vídeo, motivo e transição do trecho atual."""
     if not plan or index >= len(plan):
-        return "### ✅ Revisão concluída! Gere o vídeo logo abaixo.", None, "", "", "corte"
+        return "### ✅ Revisão concluída! Gere o vídeo logo abaixo.", None, "", "corte"
     item = plan[index]
     title = (f"### Trecho {index + 1} de {len(plan)} · {item.get('chapter') or item['kind']}\n"
              f"<small>{_time_text(item['start'])} → {_time_text(item['end'])} · {item['end'] - item['start']:.0f}s</small>")
@@ -191,7 +213,7 @@ def _view(output: str, plan: list[dict], transcripts: dict, index: int):
         preview = str(make_preview(video_path(Path(output)), item["start"], item["end"], Path(output) / "previas" / name))
     except Exception:
         pass
-    return title, preview, item["reason"], transcripts.get(item["id"], ""), item.get("transition", "corte")
+    return title, preview, f"**Por que entrou:** {friendly_reason(item['reason'])}", item.get("transition", "corte")
 
 
 def build_app():
@@ -238,7 +260,7 @@ def build_app():
                             game = gr.Textbox(label="Jogo", placeholder="Ex.: Elden Ring", min_width=160)
                             video_type = gr.Dropdown(VIDEO_TYPES, value=VIDEO_TYPES[0], label="Tipo de vídeo",
                                                      min_width=160)
-                            duration = gr.Number(label="Minutos", value=10, minimum=1, maximum=60, min_width=90)
+                            duration = gr.Number(**DURATION["16:9"], min_width=130)
                         moments = gr.CheckboxGroup(MOMENT_TYPES, value=MOMENT_TYPES[:3], label="Priorizar")
                         order = gr.Radio(ORDERS, value=ORDERS[0], label="Ordem")
                         extra = gr.Textbox(label="Algo mais? (opcional)", lines=2,
@@ -248,17 +270,17 @@ def build_app():
                         with gr.Accordion("✨ Exemplos de pedido", open=False):
                             gr.Examples(
                                 label="Clique para preencher",
-                                inputs=[game, video_type, moments, order, extra, avoid, duration],
+                                inputs=[game, video_type, moments, order, extra, avoid],
                                 examples=[
                                     ["Elden Ring", "Só vitórias contra bosses", ["Vitória em boss", "Reação forte"],
                                      "Ordem da live", "Só a tentativa que deu certo: uns 10s antes do golpe final "
-                                     "até a comemoração.", "tentativas que falharam, exploração sem ação, menus", 10],
+                                     "até a comemoração.", "tentativas que falharam, exploração sem ação, menus"],
                                     ["Minecraft", "Engraçados", ["Morte engraçada", "Reação forte", "Papo com o chat"],
                                      "Mais forte primeiro", "Ritmo rápido, trechos de 15 a 30s.",
-                                     "leitura de doações, pausas, telas de loading", 8],
+                                     "leitura de doações, pausas, telas de loading"],
                                     ["", "Short vertical", ["Reação forte", "Jogada difícil"], "IA decide",
                                      "Um único momento de até 60s que se entenda sozinho.",
-                                     "trechos que dependem do que aconteceu antes", 1],
+                                     "trechos que dependem do que aconteceu antes"],
                                 ],
                             )
                         with gr.Accordion("💡 Como pedir bem", open=False):
@@ -277,7 +299,7 @@ def build_app():
                             )
                             with gr.Row():
                                 save_style = gr.Button("Salvar meu estilo", size="sm")
-                                style_info = gr.Markdown(f"A IA já aprendeu com {len(style['aprendizado'])} decisões suas.")
+                                style_info = gr.Markdown("Vai junto em toda análise.", elem_classes="pj-hint")
 
                 with gr.Column(scale=2, min_width=300):
                     with gr.Column(elem_classes="pj-card"):
@@ -309,27 +331,26 @@ def build_app():
                                              elem_id="pj-status")
 
         # ---------------- 2. Revisar ----------------
+        # Tudo entra por padrão; a pessoa só tira o que não quer.
         with gr.Column(visible=False) as review_screen:
             with gr.Row(elem_classes="pj-card", equal_height=False):
                 review_head = gr.Markdown("", scale=4)
-                accept_all = gr.Button("✅ Aceitar tudo e gerar", variant="primary", scale=1, min_width=200)
+                accept_all = gr.Button("🎬 Gerar vídeo agora", variant="primary", scale=1, min_width=200)
 
-            with gr.Row(equal_height=False):
-                with gr.Column(scale=3, min_width=340, elem_classes="pj-card"):
-                    title = gr.Markdown("")
-                    preview = gr.Video(show_label=False, height=400, elem_id="pj-review-video", autoplay=True)
+            with gr.Column(elem_classes="pj-card"):
+                title = gr.Markdown("")
+                preview = gr.Video(show_label=False, height=420, elem_id="pj-review-video", autoplay=True)
+                reason = gr.Markdown("")
+                with gr.Row():
+                    reject = gr.Button("❌ Tirar este", variant="stop", size="lg", elem_classes="pj-big")
+                    approve = gr.Button("✅ Manter e ver o próximo", variant="primary", size="lg", elem_classes="pj-big")
+                with gr.Accordion("✂️ Ajustar este trecho", open=False):
                     with gr.Row():
-                        start_earlier = gr.Button("⏪ Começa 5s antes", size="sm", min_width=120)
-                        start_later = gr.Button("Começa 5s depois ⏩", size="sm", min_width=120)
-                        end_earlier = gr.Button("⏪ Termina 5s antes", size="sm", min_width=120)
-                        end_later = gr.Button("Termina 5s depois ⏩", size="sm", min_width=120)
-                with gr.Column(scale=2, min_width=300, elem_classes="pj-card"):
-                    reason = gr.Textbox(label="🤖 Por que a IA escolheu", lines=3, interactive=False)
-                    transcript = gr.Textbox(label="🗣️ O que foi dito", lines=3, interactive=False)
-                    transition = gr.Dropdown(list(TRANSITIONS), value="corte", label="Transição de entrada")
-                    with gr.Row():
-                        reject = gr.Button("👎 Não quero", variant="stop", size="lg", elem_classes="pj-big")
-                        approve = gr.Button("👍 Gostei", variant="primary", size="lg", elem_classes="pj-big")
+                        start_earlier = gr.Button("⏪ Começar 5s antes", size="sm", min_width=120)
+                        start_later = gr.Button("Começar 5s depois ⏩", size="sm", min_width=120)
+                        end_earlier = gr.Button("⏪ Terminar 5s antes", size="sm", min_width=120)
+                        end_later = gr.Button("Terminar 5s depois ⏩", size="sm", min_width=120)
+                    transition = gr.Dropdown(TRANSITION_NAMES, value="corte", label="Como este trecho entra")
 
             with gr.Accordion("📋 Todos os trechos", open=False):
                 overview = gr.Markdown("Ainda não existe um plano.")
@@ -337,7 +358,7 @@ def build_app():
         # ---------------- 3. Gerar ----------------
             with gr.Column(elem_classes="pj-card", elem_id="pajau-gerar"):
                 gr.Markdown("③ Gerar vídeo", elem_classes="pj-step")
-                export_button = gr.Button("🎬 Gerar vídeo só com os que gostei", variant="primary", size="lg")
+                export_button = gr.Button("🎬 Gerar vídeo", variant="primary", size="lg")
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=2, min_width=300):
                         result = gr.Video(show_label=False, height=520, elem_id="pj-result")
@@ -363,7 +384,7 @@ def build_app():
                                              elem_classes="pj-hint")
                 scenes_state = gr.State([])
 
-        view_outputs = [title, preview, reason, transcript, transition]
+        view_outputs = [title, preview, reason, transition]
         plan_outputs = [status, review_head, overview, *view_outputs, output_state, plan_state, transcripts_state,
                         index_state, accepted_state, publication_state, publication_box]
         request_inputs = [game, video_type, moments, order, extra, avoid, duration, aspect]
@@ -373,14 +394,16 @@ def build_app():
             head = (f"### {len(data)} trechos · {_time_text(sum(i['end'] - i['start'] for i in data))} de vídeo\n"
                     f"{summary}" + (f"\n\n<small>{usage}</small>" if usage else ""))
             text = publication_text(publication, data, aspect_value)
-            return (status_text, head, _overview(data), *_view(str(output), data, transcripts, 0), str(output), data,
-                    transcripts, 0, [], publication, text)
+            kept = list(range(len(data)))
+            return (status_text, head, _overview(data, kept), *_view(str(output), data, transcripts, 0), str(output),
+                    data, transcripts, 0, kept, publication, text)
 
         def _plan(output, candidates, game, vtype, moments, order, extra, avoid, minutes, aspect_value, progress):
             settings = load_ai_settings()
             progress(0.92, f"{settings.label} montando o plano...")
             briefing = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
-            plan = plan_with_ai(Path(output), candidates, briefing, avoid or "", float(minutes or 10) * 60, aspect_value)
+            plan = plan_with_ai(Path(output), candidates, briefing, avoid or "", target_seconds(minutes, aspect_value),
+                                aspect_value)
             data = [asdict(item) for item in plan.items]
             warning = muted_warning(Path(output))
             summary = (f"**{warning}**\n\n" if warning else "") + plan.summary
@@ -388,7 +411,7 @@ def build_app():
                            plan.publication, aspect_value, f"✅ Pronto: {len(data)} trechos escolhidos.")
 
         def _fail(message, output=""):
-            return (f"⚠️ {message}", "", "Ainda não existe um plano.", "", None, "", "", "corte", output, [], {}, 0, [],
+            return (f"⚠️ {message}", "", "Ainda não existe um plano.", "", None, "", "corte", output, [], {}, 0, [],
                     {}, "")
 
         def run_analysis(video_file, video_text, ignore_text, game, vtype, moments, order, extra, avoid, minutes,
@@ -405,7 +428,7 @@ def build_app():
                 return _fail(problem)
             try:
                 report = lambda fraction, text: progress(fraction * 0.9, desc=text)
-                target = float(minutes or 10) * 60
+                target = target_seconds(minutes, aspect_value)
                 if analysis_mode() == "mapa":
                     briefing = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
                     output, candidates, summary = find_segments_with_map(
@@ -455,16 +478,16 @@ def build_app():
             except Exception as error:
                 return _fail(f"Não deu para abrir: {error}")
 
-        def adjust(output, plan, transcripts, index, field, delta):
+        def adjust(output, plan, transcripts, index, kept, field, delta):
             if not plan or index >= len(plan):
-                return (*_view(output, plan, transcripts, index), plan, _overview(plan))
+                return (*_view(output, plan, transcripts, index), plan, _overview(plan, kept))
             item = dict(plan[index])
             item[field] = max(0.0, item[field] + delta)
             if item["end"] - item["start"] < 3:
-                return (*_view(output, plan, transcripts, index), plan, _overview(plan))
+                return (*_view(output, plan, transcripts, index), plan, _overview(plan, kept))
             plan = list(plan)
             plan[index] = item
-            return (*_view(output, plan, transcripts, index), plan, _overview(plan))
+            return (*_view(output, plan, transcripts, index), plan, _overview(plan, kept))
 
         def set_transition(plan, index, value):
             if plan and index < len(plan):
@@ -472,21 +495,19 @@ def build_app():
                 plan[index] = {**plan[index], "transition": value}
             return plan
 
-        def decide(output, plan, transcripts, index, accepted, liked):
+        def decide(output, plan, transcripts, index, kept, keep):
             if not plan or index >= len(plan):
-                return (*_view(output, plan, transcripts, index), index, accepted, _overview(plan, accepted))
-            item = plan[index]
-            accepted = [value for value in accepted if value != item["id"]] + ([item["id"]] if liked else [])
-            record_feedback(item["kind"], item["reason"], liked)
+                return (*_view(output, plan, transcripts, index), index, kept, _overview(plan, kept))
+            kept = sorted(set(kept) | {index}) if keep else [i for i in kept if i != index]
             index += 1
-            return (*_view(output, plan, transcripts, index), index, accepted, _overview(plan, accepted))
+            return (*_view(output, plan, transcripts, index), index, kept, _overview(plan, kept))
 
         def export(output, plan, aspect_value, only_ids, publication, shorts, progress):
             if not output or not plan:
                 return None, "Analise uma live primeiro.", *[gr.skip()] * 7
-            items = plan if only_ids is None else [item for item in plan if item["id"] in only_ids]
+            items = [plan[i] for i in sorted(only_ids) if i < len(plan)]
             if not items:
-                return (None, "⚠️ Marque pelo menos um trecho com Gostei.", *[gr.skip()] * 7)
+                return (None, "⚠️ Todos os trechos foram tirados. Mantenha pelo menos um.", *[gr.skip()] * 7)
             progress(0.05, desc=f"Preparando {len(items)} trechos...")
             try:
                 notes: list[str] = []
@@ -525,7 +546,7 @@ def build_app():
 
         def save_my_style(text):
             save_style_text(text or "")
-            return f"Estilo salvo. A IA já aprendeu com {len(load_style()['aprendizado'])} decisões suas."
+            return "✅ Estilo salvo. Vai junto em toda análise."
 
         # Feedback na hora do clique: o botão muda e o painel mostra que começou.
         def busy(message):
@@ -565,8 +586,8 @@ def build_app():
             (start_earlier, "start", -STEP), (start_later, "start", STEP),
             (end_earlier, "end", -STEP), (end_later, "end", STEP),
         ):
-            button.click(adjust, [output_state, plan_state, transcripts_state, index_state, gr.State(field), gr.State(delta)],
-                         [*view_outputs, plan_state, overview])
+            button.click(adjust, [output_state, plan_state, transcripts_state, index_state, accepted_state,
+                                  gr.State(field), gr.State(delta)], [*view_outputs, plan_state, overview])
         transition.input(set_transition, [plan_state, index_state, transition], plan_state)
 
         for button, liked in ((approve, True), (reject, False)):
@@ -575,17 +596,13 @@ def build_app():
                 lambda plan, index: _nav(3 if index >= len(plan) else 2, plan, index), [plan_state, index_state],
                 nav_outputs).then(None, js=SCROLL_SE_ACABOU)
 
-        def export_all(output, plan, aspect_value, publication, layout, zoom, corner, size, follow, subtitles,
-                       progress=gr.Progress()):
-            return export(output, plan, aspect_value, None, publication,
-                          _shorts(layout, zoom, corner, size, follow, subtitles), progress)
-
         def export_liked(output, plan, aspect_value, accepted, publication, layout, zoom, corner, size, follow,
                          subtitles, progress=gr.Progress()):
             return export(output, plan, aspect_value, accepted, publication,
                           _shorts(layout, zoom, corner, size, follow, subtitles), progress)
 
-        aspect.change(lambda value: gr.Column(visible=value == "9:16"), aspect, short_box)
+        aspect.change(lambda value: (gr.Column(visible=value == "9:16"), gr.Number(**DURATION[value])), aspect,
+                      [short_box, duration])
         short_layout.change(lambda name: (gr.Column(visible=LAYOUTS.get(name) == "camera"),
                                           gr.Slider(visible=LAYOUTS.get(name) == "jogo")),
                             short_layout, [camera_row, short_zoom])
@@ -645,8 +662,9 @@ def build_app():
         scenes_gallery.select(choose_scene, [output_state, cover_number, scenes_state], [*covers_gallery, cover_info])
         ai_cover_button.click(ai_covers, [output_state, scenes_state, publication_state, plan_state, aspect],
                               [*covers_gallery, cover_text, cover_info])
-        accept_all.click(export_all, [output_state, plan_state, aspect, publication_state, *short_inputs],
-                         export_outputs).then(None, js=SCROLL_GERAR)
+        accept_all.click(None, js=SCROLL_GERAR).then(
+            export_liked, [output_state, plan_state, aspect, accepted_state, publication_state, *short_inputs],
+            export_outputs)
         export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state, publication_state,
                                            *short_inputs], export_outputs)
         cover_number.change(pick_cover, [output_state, cover_number], cover_text)

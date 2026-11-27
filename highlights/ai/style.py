@@ -1,4 +1,4 @@
-"""Seu estilo salvo + o que a IA aprendeu com seus "Gostei" e "Não quero".
+"""Seu estilo salvo ("Meu estilo"), que vai junto em toda análise.
 
 Fica em data/estilo.json (fora do Git). Vai em toda análise, então o briefing do dia pode ser curto.
 """
@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 
 STYLE_FILE = Path("data") / "estilo.json"
-MAX_FEEDBACK = 40
 
 VIDEO_TYPES = ["Melhores momentos", "Só vitórias contra bosses", "Engraçados", "Resumo da live", "Short vertical"]
 MOMENT_TYPES = ["Vitória em boss", "Morte engraçada", "Reação forte", "Jogada difícil", "Papo com o chat", "Raiva / rage"]
@@ -21,7 +20,6 @@ def load_style() -> dict:
     except (OSError, ValueError):
         data = {}
     data.setdefault("estilo", "")
-    data.setdefault("aprendizado", [])
     return data
 
 
@@ -36,23 +34,11 @@ def save_style_text(text: str) -> None:
     _save(data)
 
 
-def record_feedback(kind: str, reason: str, liked: bool) -> None:
-    data = load_style()
-    data["aprendizado"].append({"kind": kind, "reason": reason[:120], "gostou": liked})
-    data["aprendizado"] = data["aprendizado"][-MAX_FEEDBACK:]
-    _save(data)
-
-
 def style_prompt() -> str:
     data = load_style()
     lines = []
     if data["estilo"]:
         lines.append(f"Estilo fixo do canal: {data['estilo']}")
-    if data["aprendizado"]:
-        lines.append("Decisões anteriores do criador sobre sugestões suas (aprenda o gosto dele):")
-        for item in data["aprendizado"]:
-            mark = "aceitou" if item["gostou"] else "recusou"
-            lines.append(f"- {mark} [{item['kind']}] {item['reason']}")
     return "\n".join(lines)
 
 
