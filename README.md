@@ -85,10 +85,26 @@ make ui
 
 O navegador abre sozinho (se não abrir, acesse http://127.0.0.1:7860). Escolha o vídeo da live, escreva o que você quer e clique para analisar. Confira os trechos, marque "Gostei" ou "Não quero" e gere o vídeo.
 
-## Quanto custa
+Quer um Short? Escolha **📱 Short 9:16** e clique em **👀 Ver como fica** antes de gerar.
 
-- **Pela assinatura do Claude:** nada a mais. Só usa o limite do seu plano.
-- **Por créditos de API:** centavos por live. A IA não assiste ao vídeo inteiro: o seu computador acha os melhores trechos e manda só fotos pequenas e textos.
+## Onde a IA é usada (e quanto gasta)
+
+A IA **nunca assiste ao vídeo**. Ela só recebe fotos pequenas e o texto do que foi falado. Todo o resto roda no seu computador.
+
+| Etapa | Usa IA? | Exemplo real: live de 3h14 |
+|---|---|---|
+| **1. Mapa da live**: fotos a cada 20 s para achar o que você pediu | Sim | 211 mil tokens de entrada (71% reaproveitados do cache) e 6 mil de saída ≈ **US$ 0,64** |
+| **2. Plano**: trechos, ordem, transições, títulos e ideias de capa | Sim | 91 mil de entrada (63% do cache) e 2 mil de saída ≈ **US$ 0,33** |
+| **Refazer só o plano** | Só a etapa 2 | ≈ US$ 0,33 a 0,51 |
+| **🤖 IA escolher a capa** (botão opcional) | Sim, 1 imagem | ≈ 2 mil tokens pela API |
+| Cortes, transições, legenda, Short, volume, capas, prévias | **Não** | US$ 0 |
+
+**No total:** cerca de **US$ 1 por live** pela API (medido: US$ 0,97 numa live de 3h14 e US$ 0,88 numa de 2h07, com o Claude Opus).
+
+- **Pela assinatura do Claude:** não cobra nada a mais. Esses tokens só contam no limite do seu plano.
+- **Pela API:** você paga só o que usar dos créditos. Existe uma trava diária (`PAJAU_AI_DAILY_LIMIT_USD`, padrão US$ 2) que impede novas análises quando o gasto passa disso.
+
+Para gastar menos: use **Refazer só o plano** em vez de analisar de novo, escolha um modelo mais barato em `ANTHROPIC_MODEL` ou aumente `PAJAU_MAPA_SEGUNDOS` (menos fotos no mapa). Ao final de cada análise, a tela mostra o uso real.
 
 ## Deu problema?
 
@@ -102,7 +118,7 @@ Configurações avançadas ficam no arquivo `.env`, com a explicação de cada u
 
 O Pajau é livre e gratuito. Se ele te poupou horas de edição, considere um Pix:
 
-**Chave Pix:** `PIX_AQUI`
+**Chave Pix:** `fabricioschiffer@gmail.com`
 
 ## Contribuir
 

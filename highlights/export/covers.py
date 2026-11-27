@@ -10,13 +10,14 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 
 SIZES = {"16:9": (1280, 720), "9:16": (1080, 1920)}
 FONTS = [
+    str(Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Anton-Regular.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
     "/Library/Fonts/Arial Bold.ttf",
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "C:/Windows/Fonts/arialbd.ttf",
 ]
-YELLOW, BLACK = (255, 225, 77), (0, 0, 0)
+YELLOW, WHITE, BLACK = (255, 225, 77), (255, 255, 255), (0, 0, 0)
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -60,18 +61,22 @@ def render_cover(frame: Path, text: str, output: Path, aspect: str = "16:9") -> 
         image.paste(Image.new("RGB", (width, height), BLACK), (0, 0), shade.resize((width, height)))
 
         draw = ImageDraw.Draw(image)
-        max_width, size = int(width * 0.9), int(height * (0.15 if aspect == "16:9" else 0.085))
+        max_width, size = int(width * 0.9), int(height * (0.2 if aspect == "16:9" else 0.11))
         while True:
             font = _font(size)
             lines = _wrap(draw, text, font, max_width)
             if (len(lines) <= 2 and all(draw.textlength(line, font=font) <= max_width for line in lines)) or size < 24:
                 break
             size = int(size * 0.9)
-        line_height = int(size * 1.08)
+        line_height = int(size * 1.12)
         y = height - int(height * 0.06) - line_height * len(lines)
-        for line in lines:
+        stroke = max(3, size // 12)
+        for number, line in enumerate(lines):
             x = (width - draw.textlength(line, font=font)) / 2
-            draw.text((x, y), line, font=font, fill=YELLOW, stroke_width=max(3, size // 11), stroke_fill=BLACK)
+            # Sombra deslocada para o texto "saltar" da imagem; 1ª linha branca, a última amarela.
+            draw.text((x + stroke, y + stroke * 1.5), line, font=font, fill=BLACK, stroke_width=stroke, stroke_fill=BLACK)
+            color = YELLOW if number == len(lines) - 1 else WHITE
+            draw.text((x, y), line, font=font, fill=color, stroke_width=stroke, stroke_fill=BLACK)
             y += line_height
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -113,5 +118,92 @@ def retext_cover(folder: Path, number: int, text: str) -> list[dict]:
     cover = data["covers"][number - 1]
     render_cover(Path(cover["frame"]), text, Path(cover["path"]), data["aspect"])
     cover["text"] = text
+    (folder / "capas.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    return data["covers"]
+
+
+# ---------------- Cenas candidatas: o PC acha as mais fortes, você (ou a IA) escolhe ----------------
+
+def _frame_scores(path: Path) -> tuple[float, float, float, float, "np.ndarray"]:
+    import numpy as np
+    rgb = np.asarray(Image.open(path).convert("RGB"), dtype=float)
+    gray = rgb.mean(axis=2)
+    laplace = 4 * gray[1:-1, 1:-1] - gray[:-2, 1:-1] - gray[2:, 1:-1] - gray[1:-1, :-2] - gray[1:-1, 2:]
+    rg, yb = rgb[..., 0] - rgb[..., 1], 0.5 * (rgb[..., 0] + rgb[..., 1]) - rgb[..., 2]
+    colorful = np.hypot(rg.std(), yb.std()) + 0.3 * np.hypot(rg.mean(), yb.mean())
+    small = np.asarray(Image.open(path).convert("L").resize((16, 9)), dtype=float)
+    return laplace.var(), colorful, gray.std(), gray.mean(), small
+
+
+def scene_candidates(video: str | Path, items: list[dict], folder: Path, count: int = 12) -> list[dict]:
+    """As cenas mais chamativas dos trechos do vídeo: nítidas, coloridas, com contraste e sem repetir.
+    Tudo medido no seu PC, sem IA."""
+    import numpy as np
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob("cena-*.jpg"):
+        old.unlink()
+    ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+    frames: list[tuple[float, Path, int]] = []
+    for number, item in enumerate(items):
+        duration = max(1.0, item["end"] - item["start"])
+        step = max(1.0, duration / 30)  # até 30 fotos por trecho
+        subprocess.run([ffmpeg, "-v", "error", "-y", "-ss", f"{item['start']:.2f}", "-t", f"{duration:.2f}",
+                        "-i", str(video), "-vf", f"fps=1/{step:.3f},scale=320:-2", "-q:v", "4",
+                        str(folder / f"cena-{number:02d}-%03d.jpg")], check=True)
+        for index, path in enumerate(sorted(folder.glob(f"cena-{number:02d}-*.jpg"))):
+            frames.append((item["start"] + index * step, path, number))
+    if not frames:
+        return []
+
+    data = [_frame_scores(path) for _, path, _ in frames]
+    rank = lambda values: np.argsort(np.argsort(values)) / max(1, len(values) - 1)
+    sharp, color, contrast = (rank(np.array([d[i] for d in data])) for i in range(3))
+    scores = []
+    for i, d in enumerate(data):
+        brightness = d[3]
+        penalty = max(0.0, 50 - brightness) / 25 + max(0.0, brightness - 215) / 25  # escuro ou estourado demais
+        scores.append(0.4 * sharp[i] + 0.3 * color[i] + 0.3 * contrast[i] - penalty)
+
+    # Reveza entre os trechos (a melhor de cada um, depois a 2ª melhor...), para não vir tudo da mesma luta.
+    queues = [[int(i) for i in np.argsort(scores)[::-1] if frames[i][2] == number] for number in range(len(items))]
+    chosen: list[int] = []
+    while len(chosen) < count and any(queues):
+        for queue in queues:
+            while queue:
+                i = queue.pop(0)
+                time, thumb = frames[i][0], data[i][4]
+                # Sem repetir: longe no tempo e visualmente diferente das já escolhidas.
+                if not any(abs(time - frames[j][0]) < 4 or np.abs(thumb - data[j][4]).mean() < 10 for j in chosen):
+                    chosen.append(i)
+                    break
+            if len(chosen) == count:
+                break
+    scenes = [{"time": frames[i][0], "path": str(frames[i][1])} for i in sorted(chosen, key=lambda j: frames[j][0])]
+    (folder / "cenas.json").write_text(json.dumps(scenes, ensure_ascii=False, indent=1), encoding="utf-8")
+    return scenes
+
+
+def scenes_sheet(scenes: list[dict], output: Path) -> Path:
+    """Folha única com as cenas numeradas (4 por linha), para a IA escolher vendo uma imagem só."""
+    columns, width, height = 4, 320, 180
+    rows = (len(scenes) + columns - 1) // columns
+    sheet = Image.new("RGB", (columns * width, rows * height), BLACK)
+    draw = ImageDraw.Draw(sheet)
+    font = _font(44)
+    for number, scene in enumerate(scenes, 1):
+        x, y = (number - 1) % columns * width, (number - 1) // columns * height
+        sheet.paste(ImageOps.fit(Image.open(scene["path"]).convert("RGB"), (width, height)), (x, y))
+        draw.text((x + 10, y + 6), str(number), font=font, fill=YELLOW, stroke_width=4, stroke_fill=BLACK)
+    sheet.save(output, "JPEG", quality=80)
+    return output
+
+
+def use_scene(folder: Path, number: int, video: str | Path, seconds: float) -> list[dict]:
+    """Troca a foto de uma capa por outra cena, mantendo o texto. Sem IA."""
+    data = json.loads((folder / "capas.json").read_text(encoding="utf-8"))
+    cover = data["covers"][number - 1]
+    frame = grab_frame(video, seconds, Path(cover["frame"]))
+    render_cover(frame, cover["text"], Path(cover["path"]), data["aspect"])
+    cover["time"] = seconds
     (folder / "capas.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return data["covers"]

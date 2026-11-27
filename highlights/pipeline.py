@@ -338,7 +338,7 @@ def publication_text(publication: dict, items: list[dict], aspect: str) -> str:
         lines += ["", hashtags]
     covers = [c for c in publication.get("covers", []) if isinstance(c, dict) and c.get("text")]
     if covers:
-        lines += ["", "## Ideias de capa", ""] + [f"{i}. **{c['text']}** — {c.get('why', '')}" for i, c in enumerate(covers, 1)]
+        lines += ["", "## Ideias de capa", ""] + [f"{i}. {c['text']} — {c.get('why', '')}" for i, c in enumerate(covers, 1)]
     return "\n".join(lines)
 
 

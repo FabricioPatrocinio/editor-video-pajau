@@ -18,14 +18,14 @@ def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspe
                 focuses: list[float] | None = None, shorts: dict | None = None, notes: list[str] | None = None,
                 progress=None) -> list[Path]:
     """Corta cada trecho. No 9:16 aplica o layout do Short e, se ligada, a legenda. Áudio sempre normalizado."""
-    from .shorts import DEFAULTS, subtitles_ass, vertical_graph, video_size
+    from .shorts import _clean, caption_top, copy_fonts, subtitles_ass, track_action, vertical_graph, video_size
 
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     video = Path(video).resolve()
     ffmpeg = _ffmpeg()
     vertical = aspect == "9:16"
-    shorts = {**DEFAULTS, "subtitles": False, **(shorts or {})}
+    shorts = _clean({"subtitles": False, **(shorts or {})})
     width, height = video_size(video) if vertical and mode != "fast" else (0, 0)
     want_subtitles = vertical and mode != "fast" and bool(shorts.get("subtitles"))
     paths: list[Path] = []
@@ -44,7 +44,12 @@ def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspe
 
         if vertical:
             focus = focuses[index - 1] if focuses and index - 1 < len(focuses) else 0.5
-            graph = vertical_graph(width, height, shorts, focus)
+            track = None
+            if shorts["follow"]:
+                if progress:
+                    progress(index - 1, len(cuts), "Seguindo a ação")
+                track = track_action(video, cut.start, cut.end, focus)
+            graph = vertical_graph(width, height, shorts, focus, track)
         else:
             # Mantém a resolução da live (até 1080p): nunca piora um vídeo que já é bom.
             graph = "[0:v]scale=-2:'min(ih,1080)',setsar=1[v]"
@@ -55,8 +60,9 @@ def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspe
             words = _words(video, cut, notes)
             if words:
                 name = f"clip_{index:02d}.ass"
-                subtitles_ass(words, output_dir / name)
-                graph = graph[:-3] + f"[raw];[raw]ass={name}[v]"
+                subtitles_ass(words, output_dir / name, caption_top(width, height, shorts))
+                copy_fonts(output_dir)
+                graph = graph[:-3] + f"[raw];[raw]ass={name}:fontsdir=.[v]"
         elif progress:
             progress(index, len(cuts), "Cortando")
 
