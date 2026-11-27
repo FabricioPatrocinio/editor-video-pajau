@@ -9,25 +9,63 @@ Você diz em poucas palavras o que quer ("vitórias contra boss"), a IA escolhe 
 
 ## Instalar
 
-Funciona em **Linux** e **Mac**. No Windows, use o [WSL](https://learn.microsoft.com/pt-br/windows/wsl/install) (ainda não testado).
+Não precisa saber programar: é só copiar e colar os comandos, um de cada vez. Abra o guia do seu computador:
 
-**1. Instale o básico** (só na primeira vez)
+<details>
+<summary><b>Windows</b></summary>
 
-```bash
-# Linux (Ubuntu/Debian)
-sudo apt install git make ffmpeg python3-venv
+O Pajau roda no Windows pelo **WSL**, um Linux que a Microsoft oferece de graça dentro do Windows.
 
-# Mac
-brew install git ffmpeg python
-```
+1. Clique no menu Iniciar, digite **PowerShell**, clique com o botão direito e escolha **Executar como administrador**.
+2. Cole e aperte Enter:
+   ```
+   wsl --install
+   ```
+3. **Reinicie o computador.**
+4. No menu Iniciar, abra **Ubuntu**. Na primeira vez ele pede um nome de usuário e uma senha (a senha não aparece enquanto você digita, é normal).
+5. Na janela do Ubuntu, siga o guia **Linux** logo abaixo.
 
-**2. Baixe e instale o Pajau**
+Para abrir o Pajau nas próximas vezes: abra o **Ubuntu** e rode `cd editor-video-pajau && make ui`.
 
-```bash
-git clone https://github.com/FabricioPatrocinio/editor-video-pajau.git
-cd editor-video-pajau
-make instalar
-```
+</details>
+
+<details>
+<summary><b>Mac</b></summary>
+
+1. Aperte <kbd>Cmd</kbd> + <kbd>Espaço</kbd>, digite **Terminal** e aperte Enter.
+2. Instale o Homebrew (pode pedir a senha do Mac):
+   ```
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+   No final, ele mostra uns comandos em **Next steps**: copie e rode esses também.
+3. Instale o que o Pajau usa:
+   ```
+   brew install git ffmpeg python
+   ```
+4. Baixe e instale o Pajau:
+   ```
+   git clone https://github.com/FabricioPatrocinio/editor-video-pajau.git
+   cd editor-video-pajau
+   make instalar
+   ```
+
+</details>
+
+<details>
+<summary><b>Linux</b> (e Windows pelo Ubuntu)</summary>
+
+1. Instale o que o Pajau usa (pede a sua senha):
+   ```
+   sudo apt update && sudo apt install -y git make ffmpeg python3-venv
+   ```
+2. Baixe e instale o Pajau:
+   ```
+   git clone https://github.com/FabricioPatrocinio/editor-video-pajau.git
+   cd editor-video-pajau
+   make instalar
+   ```
+
+</details>
 
 No final ele pergunta qual IA você vai usar. Escolha uma:
 
@@ -45,7 +83,7 @@ Mudou de ideia? Rode `make setup` para escolher de novo.
 make ui
 ```
 
-O navegador abre sozinho. Escolha o vídeo da live, escreva o que você quer e clique para analisar. Confira os trechos, marque "Gostei" ou "Não quero" e gere o vídeo.
+O navegador abre sozinho (se não abrir, acesse http://127.0.0.1:7860). Escolha o vídeo da live, escreva o que você quer e clique para analisar. Confira os trechos, marque "Gostei" ou "Não quero" e gere o vídeo.
 
 ## Quanto custa
 
@@ -54,7 +92,7 @@ O navegador abre sozinho. Escolha o vídeo da live, escreva o que você quer e c
 
 ## Deu problema?
 
-- **"claude: command not found"**: instale o [Claude Code](https://claude.com/claude-code), rode `claude` uma vez para fazer login e depois `make setup`.
+- **"claude: command not found"**: instale o Claude Code com `curl -fsSL https://claude.ai/install.sh | bash`, feche e abra o terminal, rode `claude` uma vez para fazer login e depois `make setup`.
 - **"ffmpeg not found"**: volte ao passo 1.
 - **Outra coisa**: abra uma [issue](../../issues) contando o que apareceu na tela.
 

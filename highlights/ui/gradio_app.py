@@ -15,6 +15,13 @@ from ..pipeline import (analysis_mode, export_plan, find_candidates, find_segmen
 STEP = 5.0
 
 
+def windows_para_wsl(caminho: str) -> str:
+    """No WSL, aceita o caminho do Windows colado (C:\\Users\\...) e troca por /mnt/c/Users/..."""
+    if len(caminho) > 2 and caminho[1] == ":" and caminho[2] in "\\/" and Path("/mnt/c").exists():
+        return f"/mnt/{caminho[0].lower()}/" + caminho[3:].replace("\\", "/")
+    return caminho
+
+
 def _file_path(value):
     if value is None:
         return None
@@ -205,7 +212,7 @@ def build_app():
 
         def run_analysis(video_file, video_text, ignore_text, game, vtype, moments, order, extra, avoid, minutes,
                          aspect_value, progress=gr.Progress()):
-            source = (video_text or "").strip().strip("'\"") or _file_path(video_file)
+            source = windows_para_wsl((video_text or "").strip().strip("'\"")) or _file_path(video_file)
             if source and not Path(source).exists():
                 return _fail(f"Arquivo não encontrado: {source}")
             if not source:
