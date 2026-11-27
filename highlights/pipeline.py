@@ -330,6 +330,9 @@ def publication_text(publication: dict, items: list[dict], aspect: str) -> str:
     hashtags = " ".join(publication.get("hashtags", []))
     if hashtags:
         lines += ["", hashtags]
+    covers = [c for c in publication.get("covers", []) if isinstance(c, dict) and c.get("text")]
+    if covers:
+        lines += ["", "## Ideias de capa", ""] + [f"{i}. **{c['text']}** — {c.get('why', '')}" for i, c in enumerate(covers, 1)]
     return "\n".join(lines)
 
 
@@ -338,3 +341,12 @@ def write_publication(output: Path, publication: dict, items: list[dict], aspect
     if text:
         (output / "publicacao.md").write_text(text + "\n", encoding="utf-8")
     return text
+
+
+def make_publication_covers(output: Path, publication: dict, items: list[dict], aspect: str) -> list[dict]:
+    """3 capas a partir das cenas que a IA sugeriu. Feitas no seu PC, sem gastar tokens."""
+    from .export.covers import make_covers
+    try:
+        return make_covers(video_path(output), (publication or {}).get("covers") or [], items, output / "capas", aspect)
+    except Exception:
+        return []

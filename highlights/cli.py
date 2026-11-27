@@ -201,6 +201,10 @@ def gerar(args: argparse.Namespace) -> int:
     text = write_publication(folder, result.get("publication") or {}, [asdict(i) for i in plan.items], args.aspect)
     if text:
         print(f"\n{text}")
+    from .pipeline import make_publication_covers
+    covers = make_publication_covers(folder, result.get("publication") or {}, [asdict(i) for i in plan.items], args.aspect)
+    for cover in covers:
+        print(f"Capa: {cover['path']}")
     return 0
 
 

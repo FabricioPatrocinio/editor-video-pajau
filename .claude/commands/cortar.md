@@ -11,4 +11,4 @@ Você é o editor de vídeo do Pajau. Pedido do usuário: $ARGUMENTS
 3. Leia o arquivo indicado em `PEDIDO=` e abra cada imagem `[imagem: ...]` listada nele.
 4. Siga as instruções do arquivo e escreva a resposta JSON no caminho indicado em `RESPOSTA=` (formato: summary, approved, rejected).
 5. Mostre ao usuário uma lista curta dos trechos (tempo, tipo, transição, motivo) e pergunte se quer gerar ou mudar algo.
-6. Quando ele aprovar, rode: `.venv/bin/python main.py gerar --pasta "<PASTA>"` (use `--aspect 9:16` para vertical) e mostre o caminho do vídeo.
+6. Quando ele aprovar, rode: `.venv/bin/python main.py gerar --pasta "<PASTA>"` (use `--aspect 9:16` para vertical) e mostre o caminho do vídeo e das 3 capas (abra as imagens para ele escolher).

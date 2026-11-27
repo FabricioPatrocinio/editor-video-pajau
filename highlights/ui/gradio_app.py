@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -9,8 +10,10 @@ from ..ai.config import check_ai_ready, load_ai_settings
 from ..ai.style import MOMENT_TYPES, ORDERS, VIDEO_TYPES, compose_briefing, load_style, record_feedback, save_style_text
 from ..analysis.transcribe import transcription_enabled
 from ..export.transitions import TRANSITIONS, make_preview
+from ..export.covers import retext_cover
 from ..pipeline import (analysis_mode, export_plan, find_candidates, find_segments_with_map, load_candidates,
-                        muted_warning, plan_with_ai, publication_text, video_path, write_publication)
+                        make_publication_covers, muted_warning, plan_with_ai, publication_text, video_path,
+                        write_publication)
 
 STEP = 5.0
 
@@ -86,6 +89,10 @@ def _overview(plan: list[dict], accepted: list[str] | None = None) -> str:
         transition = "" if index == 1 else f" ⟶ _{item['transition']}_"
         lines.append(f"{index}. {mark}`{_time_text(item['start'])}–{_time_text(item['end'])}` **{item['kind']}**{transition} — {item['reason']}")
     return "\n".join(lines)
+
+
+def _gallery(covers: list[dict]):
+    return [(cover["path"], f"{number}. {cover['why']}") for number, cover in enumerate(covers, 1)]
 
 
 def _nav(step: int, plan: list[dict] | None = None, index: int = 0):
@@ -212,6 +219,13 @@ def build_app():
             publication_box = gr.Textbox(label="📣 Título e descrição para publicar", lines=12,
                                          buttons=["copy"], interactive=False)
             publication_state = gr.State({})
+            with gr.Group():
+                covers_gallery = gr.Gallery(label="🖼️ Escolha a capa (clique para ampliar e baixar)", columns=3,
+                                            height="auto", interactive=False)
+                with gr.Row():
+                    cover_number = gr.Radio([1, 2, 3], value=1, label="Capa", scale=1)
+                    cover_text = gr.Textbox(label="Texto da capa", placeholder="Ex.: ELE NÃO ACREDITOU", scale=3)
+                    cover_button = gr.Button("Trocar texto (sem IA)", scale=1)
 
         view_outputs = [title, preview, reason, transcript, transition]
         plan_outputs = [status, overview, *view_outputs, output_state, plan_state, transcripts_state, index_state,
@@ -303,18 +317,34 @@ def build_app():
 
         def export(output, plan, aspect_value, only_ids, publication, progress):
             if not output or not plan:
-                return None, "Analise uma live primeiro.", gr.skip()
+                return None, "Analise uma live primeiro.", gr.skip(), gr.skip(), gr.skip()
             items = plan if only_ids is None else [item for item in plan if item["id"] in only_ids]
             if not items:
-                return None, "Marque pelo menos um trecho com Gostei.", gr.skip()
+                return None, "Marque pelo menos um trecho com Gostei.", gr.skip(), gr.skip(), gr.skip()
             progress(0.1, desc=f"Cortando {len(items)} trechos e aplicando transições...")
             try:
                 path = export_plan(Path(output), items, aspect_value)
                 # Capítulos refeitos com os trechos que realmente entraram no vídeo.
                 text = write_publication(Path(output), publication, items, aspect_value)
-                return str(path), f"Salvo em `{path}`", text
+                progress(0.95, desc="Montando as capas...")
+                covers = make_publication_covers(Path(output), publication, items, aspect_value)
+                first = covers[0]["text"] if covers else ""
+                return str(path), f"Salvo em `{path}`", text, _gallery(covers), first
             except Exception as error:
-                return None, f"Erro: {error}", gr.skip()
+                return None, f"Erro: {error}", gr.skip(), gr.skip(), gr.skip()
+
+        def change_cover_text(output, number, text):
+            try:
+                return _gallery(retext_cover(Path(output) / "capas", int(number), text or ""))
+            except Exception:
+                return gr.skip()
+
+        def pick_cover(output, number):
+            try:
+                covers = json.loads((Path(output) / "capas" / "capas.json").read_text(encoding="utf-8"))["covers"]
+                return covers[int(number) - 1]["text"]
+            except Exception:
+                return gr.skip()
 
         def save_my_style(text):
             save_style_text(text or "")
@@ -357,9 +387,11 @@ def build_app():
         def export_liked(output, plan, aspect_value, accepted, publication, progress=gr.Progress()):
             return export(output, plan, aspect_value, accepted, publication, progress)
 
-        accept_all.click(export_all, [output_state, plan_state, aspect, publication_state],
-                         [result, result_path, publication_box])
+        export_outputs = [result, result_path, publication_box, covers_gallery, cover_text]
+        accept_all.click(export_all, [output_state, plan_state, aspect, publication_state], export_outputs)
         export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state, publication_state],
-                            [result, result_path, publication_box])
+                            export_outputs)
+        cover_number.change(pick_cover, [output_state, cover_number], cover_text)
+        cover_button.click(change_cover_text, [output_state, cover_number, cover_text], covers_gallery)
 
     return app
