@@ -21,7 +21,8 @@ from ..export.shorts import CORNERS, load_settings, preview_frame, save_settings
 from ..export.transitions import TRANSITIONS, make_preview
 from . import jobs
 from .logic import (DURATION, LIVES_DIR, TRANSITION_NAMES, ai_label, briefing, clean_path, friendly_reason,
-                    kept_items, load_review, parse_intervals, previous_analyses, project_dir, publication_parts,
+                    kept_items, live_dir, load_review, new_cut, parse_intervals, previous_lives, project_dir,
+                    publication_parts, web_name,
                     safe_upload_name, save_review, target_seconds, time_text, total_seconds)
 
 HERE = Path(__file__).resolve().parent
@@ -48,15 +49,35 @@ def file_url(folder: Path, path: str | Path) -> str:
     """Endereço de um arquivo da análise, com a data no fim para o navegador não usar cópia velha."""
     path = Path(path)
     relative = path.resolve().relative_to(folder)
-    return f"/arquivo/{quote(folder.name)}/{quote(relative.as_posix())}?v={int(path.stat().st_mtime)}"
+    return f"/arquivo/{quote(web_name(folder))}/{quote(relative.as_posix())}?v={int(path.stat().st_mtime)}"
 
 
 # ---------------- 1. Pedido ----------------
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return page(request, "pedido.html", step=1, recent=previous_analyses(), style=load_style()["estilo"],
+def home(request: Request, live: str = ""):
+    chosen = None
+    if live:
+        from ..pipeline import video_path
+        try:
+            folder = live_dir(live)
+            video = Path(video_path(folder))
+            chosen = {"name": folder.name, "title": video.stem[:80], "path": str(video) if video.exists() else "",
+                      "has_map": (folder / "mapa.json").exists()}
+        except (FileNotFoundError, OSError, ValueError, KeyError):
+            chosen = None
+    return page(request, "pedido.html", step=1, lives=previous_lives(), chosen=chosen, style=load_style()["estilo"],
                 short=load_settings(), DURATION=DURATION, CORNERS=CORNERS)
+
+
+@app.get("/enviar/existe")
+def upload_exists(nome: str, tamanho: int):
+    """A mesma live já foi enviada antes? (mesmo tamanho e mesmo nome, sem ligar para acentos e símbolos)"""
+    key = lambda text: "".join(ch for ch in Path(text).stem.lower() if ch.isalnum())
+    for path in LIVES_DIR.glob("*") if LIVES_DIR.exists() else []:
+        if path.is_file() and path.stat().st_size == tamanho and key(path.name) == key(nome):
+            return JSONResponse({"caminho": str(path.resolve()), "nome": path.name})
+    return JSONResponse({})
 
 
 @app.put("/enviar")
@@ -107,6 +128,7 @@ async def analyze(request: Request):
         save_style_text(form.get("estilo", ""))
     shorts = _shorts_from_form(form)
     save_settings({**load_settings(), **shorts, "aspect": aspect})
+    reuse_map = form.get("refazer_mapa") != "on"
 
     def work(job: jobs.Job) -> str:
         from ..ai.config import check_ai_ready
@@ -119,23 +141,28 @@ async def analyze(request: Request):
         target, brief = target_seconds(duration, aspect), briefing(game, request_text, aspect, duration)
         if analysis_mode() == "mapa":
             output, candidates, summary = find_segments_with_map(
-                source, brief, avoid, target, skip, progress=lambda f, t: job.report(f * 0.9, t))
+                source, brief, avoid, target, skip, progress=lambda f, t: job.report(f * 0.9, t), reuse_map=reuse_map)
             if not candidates:
                 raise RuntimeError(f"A IA não achou trechos para o pedido. {summary}")
         else:
             output, candidates = find_candidates(source, target, skip, progress=lambda f, t: job.report(f * 0.9, t))
         job.report(0.92, "A IA está montando o vídeo…")
-        plan = plan_with_ai(Path(output), candidates, brief, avoid, target, aspect)
+        live = Path(output).resolve()
+        # Cada vídeo é um corte próprio da live: o próximo Short não apaga este.
+        folder = new_cut(live, {"pedido": request_text, "jogo": game, "aspect": aspect, "duracao": duration})
+        from dataclasses import asdict
+        (folder / "candidates.json").write_text(json.dumps([asdict(c) for c in candidates], ensure_ascii=False),
+                                                encoding="utf-8")
+        plan = plan_with_ai(folder, candidates, brief, avoid, target, aspect)
         if not plan.items:
+            shutil.rmtree(folder, ignore_errors=True)
             raise RuntimeError(f"A IA não escolheu nenhum trecho. {plan.summary}")
-        folder = Path(output).resolve()
-        (folder / "revisao.json").unlink(missing_ok=True)
         review = load_review(folder)
-        warning = muted_warning(folder)
+        warning = muted_warning(live)
         review.update(aspect=aspect, duration=duration, shorts=shorts, usage=plan.usage,
                       summary=(f"⚠️ {warning} " if warning else "") + plan.summary)
         save_review(folder, review)
-        return f"/conferir/{quote(folder.name)}"
+        return f"/conferir/{quote(web_name(folder))}"
 
     job_id = jobs.start("Analisando a sua live", jobs.ANALYSIS_STEPS, work)
     return RedirectResponse(f"/progresso/{job_id}", status_code=303)
@@ -163,7 +190,7 @@ def progress_state(request: Request, job_id: str):
 
 def _review_context(folder: Path, review: dict, selected: int) -> dict:
     kept = kept_items(review)
-    return {"name": folder.name, "review": review, "selected": selected, "kept_count": len(kept),
+    return {"name": web_name(folder), "review": review, "selected": selected, "kept_count": len(kept),
             "kept_time": time_text(total_seconds(kept)), "transitions": list(TRANSITIONS)}
 
 
@@ -266,7 +293,7 @@ def generate(name: str):
         job.report(0.98, "Finalizando…")
         (folder / "resultado.json").write_text(json.dumps({"video": str(path), "notes": notes}, ensure_ascii=False),
                                                encoding="utf-8")
-        return f"/pronto/{quote(folder.name)}"
+        return f"/pronto/{quote(web_name(folder))}"
 
     job_id = jobs.start("Gerando o seu vídeo", jobs.EXPORT_STEPS, work)
     return RedirectResponse(f"/progresso/{job_id}", status_code=303)
@@ -285,7 +312,7 @@ def _covers_context(folder: Path, selected: int | None = None) -> dict:
         scenes = [{**s, "url": file_url(folder, s["path"])} for s in scenes if Path(s["path"]).exists()]
     except (OSError, ValueError):
         scenes = []
-    return {"name": folder.name, "covers": covers, "selected": selected, "aspect": data.get("aspect", "16:9"),
+    return {"name": web_name(folder), "covers": covers, "selected": selected, "aspect": data.get("aspect", "16:9"),
             "scenes": scenes, "fonts": list(FONTS)}
 
 

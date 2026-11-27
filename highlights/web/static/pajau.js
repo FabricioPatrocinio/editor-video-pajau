@@ -25,8 +25,15 @@ function setupRequest(form) {
   const title = document.getElementById("drop-title"), sub = document.getElementById("drop-sub");
   const bar = document.getElementById("drop-bar");
 
-  const send = (chosen) => {
+  const ready = (answer, text) => {
+    path.value = answer.caminho; drop.classList.add("ok");
+    title.textContent = "✅ " + answer.nome; sub.textContent = text;
+  };
+  const send = async (chosen) => {
     if (!chosen) return;
+    // A mesma live já está no Pajau? Então não precisa enviar de novo (são vários GB).
+    const known = await fetch(`/enviar/existe?nome=${encodeURIComponent(chosen.name)}&tamanho=${chosen.size}`).then((r) => r.json()).catch(() => ({}));
+    if (known.caminho) { ready(known, "Já estava no Pajau, não precisou enviar de novo"); return; }
     const request = new XMLHttpRequest();
     request.open("PUT", "/enviar?nome=" + encodeURIComponent(chosen.name));
     bar.classList.remove("d-none"); button.disabled = true;
@@ -39,9 +46,7 @@ function setupRequest(form) {
     request.onload = () => {
       button.disabled = false; bar.classList.add("d-none");
       if (request.status !== 200) { title.textContent = "Não deu para enviar. Tente de novo."; return; }
-      const answer = JSON.parse(request.responseText);
-      path.value = answer.caminho; drop.classList.add("ok");
-      title.textContent = "✅ " + answer.nome; sub.textContent = "Pronta para analisar";
+      ready(JSON.parse(request.responseText), "Pronta para analisar");
     };
     request.onerror = () => { button.disabled = false; title.textContent = "Falhou o envio. Tente de novo."; };
     request.send(chosen);

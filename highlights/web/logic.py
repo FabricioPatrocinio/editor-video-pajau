@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
@@ -96,25 +97,85 @@ def ai_label() -> tuple[str, str]:
 
 # ---------------- Análises salvas ----------------
 
-def project_dir(name: str) -> Path:
-    """Pasta de uma análise, sem deixar sair de output/."""
+# Cada live tem uma pasta (fotos, áudio e o índice ficam lá) e cada vídeo feito dela é um "corte":
+# output/<live>/cortes/01, 02... Na tela, o corte se chama "<live>--01". Análises antigas ficam na raiz da live.
+
+def web_name(folder: Path) -> str:
+    return f"{folder.parent.parent.name}--{folder.name}" if folder.parent.name == "cortes" else folder.name
+
+
+def live_dir(name: str) -> Path:
     folder = (OUTPUT_DIR / name).resolve()
-    if folder.parent != OUTPUT_DIR.resolve() or not (folder / "ia-plan.json").exists():
+    if folder.parent != OUTPUT_DIR.resolve() or not (folder / "project.json").exists():
         raise FileNotFoundError(name)
     return folder
 
 
-def previous_analyses(limit: int = 8) -> list[dict]:
-    plans = sorted(OUTPUT_DIR.glob("*/ia-plan.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
-    result = []
-    for plan in plans:
+def project_dir(name: str) -> Path:
+    """Pasta de uma análise (corte), sem deixar sair de output/."""
+    live, _, cut = name.partition("--")
+    folder = live_dir(live)
+    if cut:
+        folder = (folder / "cortes" / cut).resolve()
+        if folder.parent.parent != live_dir(live) or not cut.isdigit():
+            raise FileNotFoundError(name)
+    if not (folder / "ia-plan.json").exists():
+        raise FileNotFoundError(name)
+    return folder
+
+
+def new_cut(live: Path, info: dict) -> Path:
+    """Pasta nova para mais um vídeo da mesma live."""
+    cuts = live / "cortes"
+    cuts.mkdir(exist_ok=True)
+    number = 1 + max([int(p.name) for p in cuts.iterdir() if p.name.isdigit()] or [0])
+    folder = cuts / f"{number:02d}"
+    folder.mkdir()
+    for name in ("project.json", "mudo.json"):
+        if (live / name).exists():
+            shutil.copy(live / name, folder / name)
+    (folder / "pedido.json").write_text(json.dumps({**info, "quando": datetime.now().isoformat(timespec="minutes")},
+                                                   ensure_ascii=False, indent=1), encoding="utf-8")
+    return folder
+
+
+def _readable(brief: str) -> str:
+    """Análises antigas guardam o pedido montado ("Jogo/conteúdo: ... Ordem: ..."); mostra só o que a pessoa escreveu."""
+    text = re.sub(r"(Jogo/conteúdo|Tipo de vídeo|Priorizar|Ordem):[^.]*\.\s*", "", brief or "")
+    text = re.sub(r"Formato: Short vertical.*$", "", text).strip()
+    return text or (re.search(r"Tipo de vídeo: ([^.]*)", brief or "") or [None, ""])[1]
+
+
+def _cut_info(folder: Path) -> dict:
+    when = datetime.fromtimestamp((folder / "ia-plan.json").stat().st_mtime)
+    try:
+        asked = json.loads((folder / "pedido.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        asked = {}
+    label = asked.get("pedido") or _readable(json.loads((folder / "ia-plan.json").read_text(encoding="utf-8"))
+                                             .get("briefing", ""))
+    aspect = asked.get("aspect") or load_review(folder).get("aspect", "16:9")
+    return {"name": web_name(folder), "label": (label.strip() or "Melhores momentos")[:70],
+            "icon": "📱" if aspect == "9:16" else "🖥️", "when": when.strftime("%d/%m %H:%M"), "sort": when}
+
+
+def previous_lives(limit: int = 6) -> list[dict]:
+    """Lives já analisadas, cada uma com os vídeos feitos dela (o mais novo primeiro)."""
+    lives = []
+    for live in OUTPUT_DIR.glob("*/project.json"):
+        live = live.parent
+        cuts = [live] if (live / "ia-plan.json").exists() else []
+        cuts += [c.parent for c in (live / "cortes").glob("*/ia-plan.json")]
+        if not cuts:
+            continue
         try:
-            title = Path(video_path(plan.parent)).stem
+            video = Path(video_path(live))
         except (OSError, ValueError, KeyError):
-            title = plan.parent.name
-        result.append({"name": plan.parent.name, "title": title[:70],
-                       "when": datetime.fromtimestamp(plan.stat().st_mtime).strftime("%d/%m %H:%M")})
-    return result
+            continue
+        info = sorted((_cut_info(c) for c in cuts), key=lambda c: c["sort"], reverse=True)
+        lives.append({"name": live.name, "title": video.stem[:80], "video_ok": video.exists(),
+                      "has_map": (live / "mapa.json").exists(), "cuts": info[:5], "sort": info[0]["sort"]})
+    return sorted(lives, key=lambda l: l["sort"], reverse=True)[:limit]
 
 
 def _plan_item(raw: dict) -> dict:

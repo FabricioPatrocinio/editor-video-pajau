@@ -4,15 +4,22 @@
   <h4 class="fw-bold mb-1">Que vídeo você quer?</h4>
   <p class="muted mb-4">A IA assiste por você e escolhe os melhores trechos. Você só confere.</p>
 
+  {% if chosen %}
+  <div class="reuse mb-3">
+    <div class="d-flex justify-content-between gap-2"><div>♻️ <b>Novo vídeo de:</b> {{ chosen.title }}</div><a class="link small text-nowrap" href="/">trocar</a></div>
+    {% if chosen.has_map %}<small class="muted">A live já foi mapeada: a IA escolhe pelos trechos já descritos, sem olhar a live inteira de novo. Bem mais barato.</small>{% endif %}
+    {% if not chosen.path %}<small class="text-warning d-block">A live mudou de lugar: cole o caminho atual abaixo.</small>{% endif %}
+  </div>
+  {% endif %}
   <div class="label">Sua live</div>
-  <label class="drop mb-2" id="drop">
+  <label class="drop mb-2{% if chosen and chosen.path %} d-none{% endif %}" id="drop">
     <input type="file" id="arquivo" accept=".mp4,.mkv,.mov,.webm" hidden>
     <div class="big">⬆️</div>
     <div class="fw-semibold text-light" id="drop-title">Arraste a live aqui</div>
     <small id="drop-sub">ou clique para escolher · .mp4, .mkv, .mov</small>
     <div class="progress mt-3 d-none" id="drop-bar"><div class="progress-bar"></div></div>
   </label>
-  <input class="form-control mb-4" name="caminho" id="caminho" placeholder="…ou cole o caminho: /home/voce/Vídeos/live.mp4">
+  <input class="form-control mb-4" name="caminho" id="caminho" value="{{ chosen.path if chosen else '' }}" placeholder="…ou cole o caminho: /home/voce/Vídeos/live.mp4">
 
   <div class="label">Formato</div>
   <div class="seg mb-3">
@@ -82,22 +89,29 @@
     <input class="form-control mb-3" name="pular" placeholder="Ex.: 0:00-10:00, 2:30:00-2:32:00">
     <div class="label">Meu estilo <span class="text-lowercase fw-normal">(vale para todo vídeo)</span></div>
     <textarea class="form-control" name="estilo" rows="2" placeholder="Ex.: canal de soulslike, cortes secos, manter a reação depois da vitória">{{ style }}</textarea>
+    <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="refazer_mapa" id="refazer_mapa"><label class="form-check-label" for="refazer_mapa">Olhar a live inteira de novo, mesmo que ela já tenha sido mapeada (mais caro)</label></div>
   </details>
 
   <button class="btn btn-pj w-100 mt-4" id="analisar">Analisar a live</button>
   <p class="text-center muted small mt-2 mb-0">Leva uns 2 min · {{ "usa o limite da sua assinatura" if "assinatura" in ai_label else "cerca de US$ 1 por live" }}</p>
 </form>
 
-{% if recent %}
+{% if lives %}
 <div class="mx-auto mt-4" style="max-width: 720px">
-  <div class="label">📂 Análises anteriores <span class="text-lowercase fw-normal">(abrir não gasta IA)</span></div>
-  <div class="list-group recent">
-    {% for r in recent %}
-    <a class="list-group-item d-flex justify-content-between" href="/conferir/{{ quote(r.name) }}">
-      <span class="text-truncate me-3">{{ r.title }}</span><small class="muted text-nowrap">{{ r.when }}</small>
-    </a>
-    {% endfor %}
+  <div class="label">📂 Suas lives <span class="text-lowercase fw-normal">(abrir não gasta IA)</span></div>
+  {% for live in lives %}
+  <div class="pj-card live-card mb-2">
+    <div class="d-flex justify-content-between align-items-center gap-2">
+      <div class="fw-semibold text-truncate" title="{{ live.title }}">{{ live.title }}</div>
+      {% if live.video_ok %}<a class="btn btn-ghost btn-sm text-nowrap" href="/?live={{ quote(live.name) }}">➕ Novo vídeo desta live</a>{% endif %}
+    </div>
+    <div class="cuts mt-2">
+      {% for c in live.cuts %}
+      <a class="cut" href="/conferir/{{ quote(c.name) }}"><span class="text-truncate">{{ c.icon }} {{ c.label }}</span><small class="muted text-nowrap">{{ c.when }}</small></a>
+      {% endfor %}
+    </div>
   </div>
+  {% endfor %}
 </div>
 {% endif %}
 {% endblock %}
