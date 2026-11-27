@@ -53,14 +53,6 @@ def select_cuts(
                 end = min(len(score), int(start) + int(min_cut))
         end = min(end, start + int(max_cut))
 
-        while end - start > int(min_cut):
-            left_room = start
-            right_room = len(score) - end
-            if right_room > left_room:
-                end -= min(1, end - start - int(min_cut))
-            else:
-                break
-
         if end - start < int(min_cut) or not usable[start:end].all():
             continue
 

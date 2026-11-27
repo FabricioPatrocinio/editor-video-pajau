@@ -1,78 +1,73 @@
 # Pajau
 
-Pajau é uma ferramenta open-source para encontrar melhores momentos em lives longas usando sinais de vídeo e áudio, sem IA/ML/LLM.
+**Transforma uma live longa em um vídeo de melhores momentos.**
+Você diz em poucas palavras o que quer ("vitórias contra boss"), a IA escolhe os trechos, você confere e o vídeo sai pronto.
 
-## Recursos
+- Roda no seu computador: o vídeo nunca sai da sua máquina.
+- Usa a sua assinatura do Claude, sem custo extra. Também funciona com chave de API do Claude ou da OpenAI.
+- Aprende o seu gosto a cada "Gostei" e "Não quero".
 
-- Arquivos locais MP4/MKV/MOV/WEBM ou URL opcional do YouTube
-- Sinais de áudio, chat, heatmap, cenas, silêncio e timestamps manuais
-- Redistribuição automática de pesos para sinais indisponíveis
-- Clips separados, compilado, CSV/JSON, gráfico e timeline MLT/EDL
-- CLI e interface Gradio básica
-- Cache dos sinais extraídos
+## Instalar
 
-## Pré-requisitos
+Funciona em **Linux** e **Mac**. No Windows, use o [WSL](https://learn.microsoft.com/pt-br/windows/wsl/install) (ainda não testado).
 
-```bash
-sudo apt update
-sudo apt install ffmpeg python3 python3-venv
-```
-
-## Instalação
+**1. Instale o básico** (só na primeira vez)
 
 ```bash
-cd ~/Documentos/editor-video-pajau
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e .
+# Linux (Ubuntu/Debian)
+sudo apt install git make ffmpeg python3-venv
+
+# Mac
+brew install git ffmpeg python
 ```
 
-## Uso por arquivo local
+**2. Baixe e instale o Pajau**
 
 ```bash
-python main.py analyze --input /caminho/live.mp4 --preset highlights_10min
+git clone https://github.com/FabricioPatrocinio/editor-video-pajau.git
+cd editor-video-pajau
+make instalar
 ```
 
-Arquivo local é recomendado para controlar qualidade e evitar o download da plataforma.
+No final ele pergunta qual IA você vai usar. Escolha uma:
 
-## Exemplo para Shorts verticais
+| Opção | O que você precisa |
+|---|---|
+| **1. Assinatura do Claude** (recomendado) | Plano Pro ou Max e o [Claude Code](https://claude.com/claude-code) instalado e logado |
+| 2. Claude com créditos | Uma chave em [platform.claude.com](https://platform.claude.com/settings/keys) |
+| 3. OpenAI com créditos | Uma chave em [platform.openai.com](https://platform.openai.com/api-keys) |
+
+Mudou de ideia? Rode `make setup` para escolher de novo.
+
+## Usar
 
 ```bash
-python main.py analyze --input /caminho/live.mp4 --preset shorts_60s_vertical --aspect 9:16
+make ui
 ```
 
-## URL do YouTube
+O navegador abre sozinho. Escolha o vídeo da live, escreva o que você quer e clique para analisar. Confira os trechos, marque "Gostei" ou "Não quero" e gere o vídeo.
 
-```bash
-python main.py analyze --url "https://youtube.com/watch?v=ID" --preset highlights_10min
-```
+## Quanto custa
 
-A qualidade de download e os formatos de vídeo são definidos pelo yt-dlp. Antes de uma interface completa, configure o formato em `highlights/download/youtube.py`.
+- **Pela assinatura do Claude:** nada a mais. Só usa o limite do seu plano.
+- **Por créditos de API:** centavos por live. A IA não assiste ao vídeo inteiro: o seu computador acha os melhores trechos e manda só fotos pequenas e textos.
 
-## Interface
+## Deu problema?
 
-```bash
-python main.py ui --host 127.0.0.1 --port 7860
-```
+- **"claude: command not found"**: instale o [Claude Code](https://claude.com/claude-code), rode `claude` uma vez para fazer login e depois `make setup`.
+- **"ffmpeg not found"**: volte ao passo 1.
+- **Outra coisa**: abra uma [issue](../../issues) contando o que apareceu na tela.
 
-## Saídas
+Configurações avançadas ficam no arquivo `.env`, com a explicação de cada uma em [`.env.example`](.env.example).
 
-A saída padrão fica em `output/`:
+## Apoie
 
-- `clips/clip_*.mp4`
-- `compilation.mp4`
-- `project.json`
-- `cuts.csv` e `cuts.json`
-- `score.png`
-- `kdenlive.mlt`
-- `timeline.edl`
+O Pajau é livre e gratuito. Se ele te poupou horas de edição, considere um Pix:
 
-O cache fica em `cache/signals.npz` e permite reajustar a combinação de sinais sem repetir toda a extração.
+**Chave Pix:** `PIX_AQUI`
 
-## Testes
+## Contribuir
 
-```bash
-pip install pytest
-pytest -q
-```
+Ideias e correções são bem-vindas: abra uma [issue](../../issues) ou um pull request.
+
+Licença [MIT](LICENSE).

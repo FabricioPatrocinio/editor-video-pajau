@@ -8,3 +8,6 @@ output/
 *.webm
 *.log
 *.egg-info/
+.env
+data/
+.pytest_cache/

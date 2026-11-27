@@ -33,11 +33,11 @@ def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspe
             ]
         filter_arg = ";".join(vf) if aspect == "16:9" else ";".join(vf)
 
-        command = [ffmpeg, "-y"]
+        command = [ffmpeg, "-y", "-v", "error"]
         if mode == "fast":
             command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-map", "0:v:0", "-map", "0:a?", "-c", "copy"]
         else:
-            command += ["-i", str(video), "-ss", str(cut.start), "-t", str(cut.duration), "-vf", filter_arg, "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
+            command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-vf", filter_arg, "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
         command.append(str(path))
         subprocess.run(command, check=True)
         paths.append(path)
@@ -52,7 +52,7 @@ def export_compilation(clips: list[Path], output: str | Path, crossfade: float =
     concat.write_text("".join(f"file '{path.resolve().as_posix()}'\n" for path in clips), encoding="utf-8")
 
     if crossfade > 0:
-        command = [ffmpeg, "-y"]
+        command = [ffmpeg, "-y", "-v", "error"]
         for clip in clips:
             command += ["-i", str(clip)]
         filters = []

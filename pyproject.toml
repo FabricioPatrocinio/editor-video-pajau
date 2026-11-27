@@ -1,7 +1,7 @@
 [project]
 name = "editor-video-pajau"
 version = "0.1.0"
-description = "Gerador open-source de compilados de melhores momentos sem IA/ML"
+description = "Editor de cortes de lives longas com sinais locais e IA (Claude ou OpenAI)"
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26",
@@ -11,7 +11,13 @@ dependencies = [
   "matplotlib>=3.8",
   "yt-dlp>=2024.12.0",
   "gradio>=4.44",
+  "httpx>=0.27",
+  "python-dotenv>=1.0",
+  "anthropic>=2.14",
 ]
+
+[project.optional-dependencies]
+transcricao = ["faster-whisper>=1.0"]
 
 [project.scripts]
 pajau = "highlights.cli:main"

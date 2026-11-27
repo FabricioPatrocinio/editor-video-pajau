@@ -73,3 +73,23 @@ def detect_silence(wav_path: str | Path, threshold_db: float = -35.0, min_durati
         ends.append(float(value))
     intervals = [(starts[i], ends[i]) for i in range(min(len(starts), len(ends)))]
     return intervals
+
+
+def find_muted_ranges(video: str | Path, min_seconds: float = 20.0) -> list[tuple[float, float]]:
+    """Trechos em silêncio digital total (áudio mudo na gravação ou silenciado pela plataforma)."""
+    import re
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return []
+    run = subprocess.run(
+        [ffmpeg, "-nostats", "-i", str(video), "-vn", "-af", f"silencedetect=noise=-80dB:d={min_seconds}", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    starts = [float(x) for x in re.findall(r"silence_start: ([0-9.]+)", run.stderr)]
+    ends = [float(x) for x in re.findall(r"silence_end: ([0-9.]+)", run.stderr)]
+    if len(ends) < len(starts):  # mudo até o fim do arquivo
+        duration = re.search(r"Duration: (\d+):(\d+):([0-9.]+)", run.stderr)
+        total = int(duration[1]) * 3600 + int(duration[2]) * 60 + float(duration[3]) if duration else starts[-1]
+        ends.append(total)
+    return list(zip(starts, ends))
