@@ -7,6 +7,8 @@ Você diz em poucas palavras o que quer ("vitórias contra boss"), a IA escolhe 
 - Usa a sua assinatura do Claude, sem custo extra. Também funciona com chave de API do Claude ou da OpenAI.
 - Faz vídeo horizontal e Short vertical, com legenda, enquadramento e capa automáticos.
 
+![Capa feita pelo Pajau a partir de uma live](docs/img/capa-exemplo.jpg)
+
 ## Instalar
 
 Não precisa saber programar: é só copiar e colar os comandos, um de cada vez. Abra o guia do seu computador:
@@ -83,9 +85,27 @@ Mudou de ideia? Rode `make setup` para escolher de novo.
 make ui
 ```
 
-O navegador abre sozinho (se não abrir, acesse http://127.0.0.1:7860). Escolha o vídeo da live, escreva o que você quer e clique para analisar. Todos os trechos escolhidos já entram: confira e tire o que não quiser. Depois é só gerar.
+O navegador abre sozinho (se não abrir, acesse http://127.0.0.1:7860). São 3 telas, com um botão principal em cada:
 
-Quer um Short? Escolha **📱 Short 9:16** e clique em **👀 Ver como fica** antes de gerar.
+**1. Pedido.** Envie a live (ou cole o caminho), escolha **Vídeo** ou **Short** e diga em poucas palavras o que você quer. No Short, clique em **👀 Ver como fica** para conferir o enquadramento antes de gastar qualquer coisa.
+
+![Tela de pedido](docs/img/1-pedido.jpg)
+
+Enquanto a IA trabalha, a tela mostra cada etapa:
+
+![Analisando a live](docs/img/2-progresso.jpg)
+
+**2. Conferir.** Todos os trechos escolhidos já entram. Clique num trecho para ver e desligue o que não quiser.
+
+![Conferir os trechos](docs/img/3-conferir.jpg)
+
+**3. Pronto.** Baixe o vídeo, copie o título e a descrição e escolha a capa. A IA monta 3 capas; você pode trocar o texto, a fonte, a cor e o lado do texto, e é tudo refeito na hora, sem IA.
+
+![Vídeo pronto com capas](docs/img/4-pronto.jpg)
+
+A tela também se adapta a janelas pequenas:
+
+<img src="docs/img/5-celular.jpg" alt="Tela em janela estreita" width="280">
 
 ## Quanto tempo deve ter o vídeo
 
@@ -105,16 +125,18 @@ A IA **nunca assiste ao vídeo**. Ela só recebe fotos pequenas e o texto do que
 | Etapa | Usa IA? | Exemplo real: live de 3h14 |
 |---|---|---|
 | **1. Mapa da live**: fotos a cada 20 s para achar o que você pediu | Sim | 211 mil tokens de entrada (71% reaproveitados do cache) e 6 mil de saída ≈ **US$ 0,64** |
-| **2. Plano**: trechos, ordem, transições, títulos e ideias de capa | Sim | 91 mil de entrada (63% do cache) e 2 mil de saída ≈ **US$ 0,33** |
-| **Refazer só o plano** | Só a etapa 2 | ≈ US$ 0,33 a 0,51 |
-| Cortes, transições, legenda, Short, volume, capas, prévias | **Não** | US$ 0 |
+| **2. Plano**: trechos, ordem, transições, títulos e descrição | Sim | 91 mil de entrada (63% do cache) e 2 mil de saída ≈ **US$ 0,33** |
+| **3. Capas**: a IA olha uma imagem com as 12 cenas mais fortes e monta 3 capas | Sim | 11 mil de entrada e 600 de saída ≈ **US$ 0,05** (desligue com `PAJAU_CAPA_IA=false`) |
+| Cortes, transições, legenda, Short, volume, trocar texto/cor/fonte da capa, prévias | **Não** | US$ 0 |
 
-**No total:** cerca de **US$ 1 por live** pela API (medido: US$ 0,97 numa live de 3h14 e US$ 0,88 numa de 2h07, com o Claude Opus).
+**No total:** cerca de **US$ 1 por live** (medido: US$ 0,97 numa live de 3h14 e US$ 0,88 numa de 2h07, com o Claude Opus).
+
+> Esses números foram medidos pela assinatura, antes de uma otimização que tira de cada chamada as instruções internas do Claude Code. Só na capa, isso baixou de 99 mil para 11 mil tokens. Mapa e plano também devem cair; os valores acima serão atualizados com novas medições.
 
 - **Pela assinatura do Claude:** não cobra nada a mais. Esses tokens só contam no limite do seu plano.
 - **Pela API:** você paga só o que usar dos créditos. Existe uma trava diária (`PAJAU_AI_DAILY_LIMIT_USD`, padrão US$ 2) que impede novas análises quando o gasto passa disso.
 
-Para gastar menos: use **Refazer só o plano** em vez de analisar de novo, escolha um modelo mais barato em `ANTHROPIC_MODEL` ou aumente `PAJAU_MAPA_SEGUNDOS` (menos fotos no mapa). Ao final de cada análise, a tela mostra o uso real.
+Para gastar menos: reabra análises antigas pela lista **📂 Análises anteriores** (não gasta IA), escolha um modelo mais barato em `ANTHROPIC_MODEL` ou aumente `PAJAU_MAPA_SEGUNDOS` (menos fotos no mapa).
 
 ## Deu problema?
 

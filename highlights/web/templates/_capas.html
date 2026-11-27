@@ -1,0 +1,62 @@
+{% if covers %}{% set c = covers[selected - 1] %}
+<div class="pj-card capas">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="label mb-0">Capa</div><span class="ai-badge">✨ {{ c.why[:60] if c.why else "sugestão da IA" }}</span>
+  </div>
+  <img src="{{ c.url }}" class="cover-main{% if aspect == '9:16' %} vertical{% endif %}" alt="Capa {{ selected }}">
+
+  <div class="label mt-3">Outras opções</div>
+  <div class="row g-2 thumbs mb-3">
+    {% for cv in covers %}
+    <div class="col-4"><img src="{{ cv.url }}" class="{% if loop.index == selected %}sel{% endif %}{% if aspect == '9:16' %} vertical{% endif %}" alt=""
+         hx-post="/pronto/{{ quote(name) }}/capa" hx-vals='{"n": {{ loop.index }}}' hx-target="#capas"></div>
+    {% endfor %}
+  </div>
+
+  <form class="input-group mb-3" hx-post="/pronto/{{ quote(name) }}/capa" hx-target="#capas">
+    <input type="hidden" name="n" value="{{ selected }}">
+    <input class="form-control" name="texto" value="{{ c.text }}" maxlength="40" aria-label="Texto da capa">
+    <button class="btn btn-ghost">Trocar texto</button>
+  </form>
+
+  <div class="style-row mb-2">
+    <span class="label mb-0 me-1">Fonte</span>
+    {% for f in fonts %}
+    <button class="chip font-{{ f }}{% if c.font == f %} on{% endif %}" hx-post="/pronto/{{ quote(name) }}/capa"
+            hx-vals='{"n": {{ selected }}, "fonte": "{{ f }}"}' hx-target="#capas">{{ FONT_NAMES[f] }}</button>
+    {% endfor %}
+  </div>
+  <div class="style-row mb-2">
+    <span class="label mb-0 me-1">Cor</span>
+    {% for name_, rgb in COLORS.items() %}
+    <button class="swatch{% if c.color == name_ %} on{% endif %}" title="{{ name_ }}" style="background: rgb{{ rgb }}"
+            hx-post="/pronto/{{ quote(name) }}/capa" hx-vals='{"n": {{ selected }}, "cor": "{{ name_ }}"}' hx-target="#capas"></button>
+    {% endfor %}
+  </div>
+  {% if aspect != "9:16" %}
+  <div class="style-row mb-3">
+    <span class="label mb-0 me-1">Texto</span>
+    {% for side, label in [("esquerda", "⬅ Esquerda"), ("baixo", "⬇ Embaixo"), ("direita", "Direita ➡")] %}
+    <button class="chip{% if c.side == side %} on{% endif %}" hx-post="/pronto/{{ quote(name) }}/capa"
+            hx-vals='{"n": {{ selected }}, "lado": "{{ side }}"}' hx-target="#capas">{{ label }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <a class="btn btn-ghost w-100" href="{{ c.url }}" download="capa-{{ selected }}.jpg">⬇ Baixar esta capa</a>
+
+  {% if scenes %}
+  <details class="pj-details mt-3">
+    <summary>🎞️ Quer outra foto nesta capa?</summary>
+    <div class="row g-2 mt-2 scenes">
+      {% for s in scenes %}
+      <div class="col-3"><img src="{{ s.url }}" alt="" hx-post="/pronto/{{ quote(name) }}/capa"
+           hx-vals='{"n": {{ selected }}, "cena": {{ s.time }}}' hx-target="#capas"></div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% else %}
+<div class="pj-card muted">As capas não ficaram prontas desta vez.</div>
+{% endif %}

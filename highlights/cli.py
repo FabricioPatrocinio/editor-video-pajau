@@ -251,7 +251,7 @@ def build_parser() -> argparse.ArgumentParser:
     gen_parser.add_argument("--aspect", choices=["16:9", "9:16"], default="16:9")
     gen_parser.set_defaults(func=gerar)
 
-    ui_parser = sub.add_parser("ui", help="Abrir interface Gradio")
+    ui_parser = sub.add_parser("ui", help="Abrir a interface no navegador")
     ui_parser.add_argument("--host", default="127.0.0.1")
     ui_parser.add_argument("--port", type=int, default=7860)
     ui_parser.set_defaults(func=lambda args: launch_ui(args.host, args.port))
@@ -259,9 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def launch_ui(host: str, port: int) -> int:
-    from .ui.gradio_app import CSS, build_app
-    app = build_app()
-    app.launch(server_name=host, server_port=port, inbrowser=True, css=CSS)
+    from .web.app import run
+    run(host, port)
     return 0
 
 

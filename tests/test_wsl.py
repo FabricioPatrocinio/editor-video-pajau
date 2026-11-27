@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from highlights.ui.gradio_app import windows_para_wsl
+from highlights.web.logic import safe_upload_name, windows_para_wsl
 
 
 def test_converte_caminho_do_windows_no_wsl(monkeypatch):
@@ -9,10 +9,6 @@ def test_converte_caminho_do_windows_no_wsl(monkeypatch):
     assert windows_para_wsl("/home/ana/live.mp4") == "/home/ana/live.mp4"
 
 
-def test_upload_sai_da_pasta_temporaria(tmp_path):
-    from highlights.ui.gradio_app import keep_upload
-    upload = tmp_path / "gradio" / "live.mp4"
-    upload.parent.mkdir()
-    upload.write_bytes(b"x")
-    kept = keep_upload(str(upload), tmp_path / "lives")
-    assert Path(kept).read_bytes() == b"x" and not upload.exists()
+def test_nome_do_arquivo_enviado_nao_sai_da_pasta():
+    assert safe_upload_name("../../etc/passwd") == "passwd.mp4"
+    assert safe_upload_name("Minha Live – Parte 1.mp4") == "Minha Live _ Parte 1.mp4"

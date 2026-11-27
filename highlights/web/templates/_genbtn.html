@@ -1,0 +1,5 @@
+<form method="post" action="/gerar/{{ quote(name) }}" class="d-inline">
+  <button class="btn btn-pj px-5" {% if not kept_count %}disabled{% endif %}>
+    {% if kept_count %}Gerar vídeo · {{ kept_count }} trecho{{ "s" if kept_count != 1 }} · {{ kept_time }}{% else %}Ligue pelo menos um trecho{% endif %}
+  </button>
+</form>

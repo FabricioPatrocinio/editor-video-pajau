@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<form id="pedido" method="post" action="/analisar" class="pj-card mx-auto" style="max-width: 720px">
+  <h4 class="fw-bold mb-1">Que vídeo você quer?</h4>
+  <p class="muted mb-4">A IA assiste por você e escolhe os melhores trechos. Você só confere.</p>
+
+  <div class="label">Sua live</div>
+  <label class="drop mb-2" id="drop">
+    <input type="file" id="arquivo" accept=".mp4,.mkv,.mov,.webm" hidden>
+    <div class="big">⬆️</div>
+    <div class="fw-semibold text-light" id="drop-title">Arraste a live aqui</div>
+    <small id="drop-sub">ou clique para escolher · .mp4, .mkv, .mov</small>
+    <div class="progress mt-3 d-none" id="drop-bar"><div class="progress-bar"></div></div>
+  </label>
+  <input class="form-control mb-4" name="caminho" id="caminho" placeholder="…ou cole o caminho: /home/voce/Vídeos/live.mp4">
+
+  <div class="label">Formato</div>
+  <div class="seg mb-3">
+    {% for value, icon, name in [("16:9", "🖥️", "Vídeo"), ("9:16", "📱", "Short")] %}
+    <label class="opt">
+      <input type="radio" name="formato" value="{{ value }}" {% if short.aspect == value %}checked{% endif %}
+             data-unit="{{ DURATION[value].unit }}" data-value="{{ DURATION[value].value }}"
+             data-min="{{ DURATION[value].min }}" data-max="{{ DURATION[value].max }}" data-hint="{{ DURATION[value].hint }}">
+      {{ icon }} <b>{{ name }}</b>
+      <small>{{ "horizontal · sugerido 8 a 12 min" if value == "16:9" else "vertical · sugerido 30 a 60 s" }}</small>
+    </label>
+    {% endfor %}
+  </div>
+
+  <div id="short-opts" class="short-box mb-4 {% if short.aspect != '9:16' %}d-none{% endif %}">
+    <div class="row g-3 align-items-center">
+      <div class="col-12">
+        <div class="label">Layout</div>
+        <div class="btn-group w-100" role="group">
+          <input type="radio" class="btn-check" name="layout" id="lay-jogo" value="jogo" {% if short.layout != "camera" %}checked{% endif %}>
+          <label class="btn btn-ghost" for="lay-jogo">🎮 Jogo em destaque</label>
+          <input type="radio" class="btn-check" name="layout" id="lay-cam" value="camera" {% if short.layout == "camera" %}checked{% endif %}>
+          <label class="btn btn-ghost" for="lay-cam">🎥 Câmera + jogo</label>
+        </div>
+      </div>
+      <div class="col-12 {% if short.layout == 'camera' %}d-none{% endif %}" id="zoom-box">
+        <div class="label d-flex justify-content-between">Zoom no jogo <span id="zoom-val">{{ short.zoom|int }}</span></div>
+        <input type="range" class="form-range" name="zoom" min="0" max="100" step="5" value="{{ short.zoom|int }}">
+      </div>
+      <div class="col-md-6 cam-box {% if short.layout != 'camera' %}d-none{% endif %}">
+        <div class="label">Onde fica sua câmera</div>
+        <select class="form-select" name="canto">
+          {% for c in CORNERS %}<option {% if short.corner == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 cam-box {% if short.layout != 'camera' %}d-none{% endif %}">
+        <div class="label d-flex justify-content-between">Largura da câmera <span id="cam-val">{{ short.camera_size|int }}%</span></div>
+        <input type="range" class="form-range" name="camera" min="10" max="50" value="{{ short.camera_size|int }}">
+      </div>
+      <div class="col-12 d-flex flex-wrap gap-4">
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="seguir" id="seguir" {% if short.follow %}checked{% endif %}><label class="form-check-label" for="seguir">🎯 Seguir a ação</label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="legenda" id="legenda" {% if short.subtitles %}checked{% endif %}><label class="form-check-label" for="legenda">💬 Legenda na tela</label></div>
+        <button type="button" class="btn btn-ghost btn-sm ms-auto" hx-post="/previa-short" hx-include="#pedido" hx-target="#short-preview" hx-indicator="#short-preview">👀 Ver como fica</button>
+      </div>
+      <div class="col-12 text-center" id="short-preview"></div>
+    </div>
+  </div>
+
+  <div class="label">O que você quer?</div>
+  <textarea class="form-control mb-2" name="pedido" rows="3" placeholder="Ex.: só as vitórias contra os bosses, sem as mortes"></textarea>
+  <div class="row g-2 mb-1">
+    <div class="col-7 col-md-8"><input class="form-control" name="jogo" placeholder="Jogo (opcional) · Ex.: Elden Ring"></div>
+    <div class="col-5 col-md-4">
+      <div class="input-group">
+        <input class="form-control" type="number" name="duracao" id="duracao">
+        <span class="input-group-text" id="dur-unit">min</span>
+      </div>
+    </div>
+  </div>
+  <small class="muted d-block mb-3" id="dur-hint"></small>
+
+  <details class="pj-details">
+    <summary>+ Mais opções (o que ignorar, meu estilo)</summary>
+    <div class="label mt-3">Ignorar</div>
+    <input class="form-control mb-3" name="ignorar" placeholder="Ex.: tentativas que falharam, menus, leitura de chat">
+    <div class="label">Pular estes tempos da live</div>
+    <input class="form-control mb-3" name="pular" placeholder="Ex.: 0:00-10:00, 2:30:00-2:32:00">
+    <div class="label">Meu estilo <span class="text-lowercase fw-normal">(vale para todo vídeo)</span></div>
+    <textarea class="form-control" name="estilo" rows="2" placeholder="Ex.: canal de soulslike, cortes secos, manter a reação depois da vitória">{{ style }}</textarea>
+  </details>
+
+  <button class="btn btn-pj w-100 mt-4" id="analisar">Analisar a live</button>
+  <p class="text-center muted small mt-2 mb-0">Leva uns 2 min · {{ "usa o limite da sua assinatura" if "assinatura" in ai_label else "cerca de US$ 1 por live" }}</p>
+</form>
+
+{% if recent %}
+<div class="mx-auto mt-4" style="max-width: 720px">
+  <div class="label">📂 Análises anteriores <span class="text-lowercase fw-normal">(abrir não gasta IA)</span></div>
+  <div class="list-group recent">
+    {% for r in recent %}
+    <a class="list-group-item d-flex justify-content-between" href="/conferir/{{ quote(r.name) }}">
+      <span class="text-truncate me-3">{{ r.title }}</span><small class="muted text-nowrap">{{ r.when }}</small>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

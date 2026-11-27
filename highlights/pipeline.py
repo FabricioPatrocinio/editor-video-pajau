@@ -349,10 +349,29 @@ def write_publication(output: Path, publication: dict, items: list[dict], aspect
     return text
 
 
-def make_publication_covers(output: Path, publication: dict, items: list[dict], aspect: str) -> list[dict]:
-    """3 capas a partir das cenas que a IA sugeriu. Feitas no seu PC, sem gastar tokens."""
-    from .export.covers import make_covers
+def make_publication_covers(output: Path, publication: dict, items: list[dict], aspect: str,
+                            notes: list[str] | None = None) -> list[dict]:
+    """3 capas. A IA escolhe as cenas olhando as 12 mais fortes (uma imagem só, ~2 mil tokens);
+    desligue com PAJAU_CAPA_IA=false. Sem IA, usa as ideias de capa que vieram no plano."""
+    from .ai.config import env_flag
+    from .export.covers import make_covers, scene_candidates
+    notes = notes if notes is not None else []
+    video, folder = video_path(output), output / "capas"
+    ideas = (publication or {}).get("covers") or []
+    if env_flag("PAJAU_CAPA_IA", True):
+        try:
+            scenes = scene_candidates(video, items, folder / "cenas")
+            if scenes:
+                from .ai.covers_ai import pick_covers
+                titles = (publication or {}).get("titles") or []
+                picked, usage = pick_covers(scenes, folder / "cenas", titles[0] if titles else "")
+                if picked:
+                    ideas = picked
+                    notes.append(f"Capas escolhidas pela IA · {usage}")
+        except Exception as error:
+            notes.append(f"Capas feitas sem a IA ({error})")
     try:
-        return make_covers(video_path(output), (publication or {}).get("covers") or [], items, output / "capas", aspect)
-    except Exception:
+        return make_covers(video, ideas, items, folder, aspect)
+    except Exception as error:
+        notes.append(f"Não deu para montar as capas: {error}")
         return []

@@ -1,0 +1,19 @@
+<div class="player mb-3"><video src="{{ preview_url }}" controls autoplay playsinline></video></div>
+<div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2">
+  <h5 class="fw-bold mb-1">{{ item.chapter or item.kind }}</h5>
+  <small class="muted">{{ time_text(item.start) }} → {{ time_text(item.end) }} · {{ (item.end - item.start)|round|int }} s</small>
+</div>
+<p class="mb-2"><b>Por que entrou:</b> {{ friendly_reason(item.reason) }}</p>
+<details class="pj-details">
+  <summary>✂️ Ajustar início, fim e transição</summary>
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    {% for campo, delta, label in [("start", -5, "⏪ Começar 5s antes"), ("start", 5, "Começar 5s depois ⏩"), ("end", -5, "⏪ Terminar 5s antes"), ("end", 5, "Terminar 5s depois ⏩")] %}
+    <button class="btn btn-ghost btn-sm" hx-post="/conferir/{{ quote(name) }}/trecho/{{ index }}/ajustar"
+            hx-vals='{"campo": "{{ campo }}", "delta": {{ delta }}}' hx-target="#player">{{ label }}</button>
+    {% endfor %}
+  </div>
+  <div class="label mt-3">Como este trecho entra</div>
+  <select class="form-select" name="transicao" hx-post="/conferir/{{ quote(name) }}/trecho/{{ index }}/ajustar" hx-target="#player">
+    {% for key in transitions %}<option value="{{ key }}" {% if item.transition == key %}selected{% endif %}>{{ TRANSITION_NAMES.get(key, key) }}</option>{% endfor %}
+  </select>
+</details>

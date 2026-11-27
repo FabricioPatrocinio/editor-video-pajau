@@ -243,6 +243,12 @@ class ClaudeCodeProvider:
             "--json-schema", json.dumps(schema),
             "--allowedTools", "Read",
             "--add-dir", str(folder),
+            # Modo enxuto: sem as instruções, ferramentas e servidores MCP do Claude Code, que somam
+            # dezenas de milhares de tokens por chamada (medido: 30 mil -> 1,9 mil numa pergunta vazia).
+            "--tools", "Read",
+            "--strict-mcp-config",
+            "--system-prompt", "Você é o assistente do Pajau, um editor de vídeos. Siga o arquivo de pedido à risca.",
+            "--no-session-persistence",
         ]
         if self.settings.model:
             command += ["--model", self.settings.model]

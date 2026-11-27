@@ -1,4 +1,7 @@
-"""Capas: foto em resolução cheia de uma cena escolhida + texto grande com contorno. Tudo local, sem IA."""
+"""Capas no estilo das miniaturas de jogos: zoom na ação, cores vivas, vinheta e texto enorme inclinado.
+
+Tudo é desenhado no seu PC. A IA só diz qual cena usar, o texto, o lado do texto, a cor e a fonte.
+"""
 from __future__ import annotations
 
 import json
@@ -6,25 +9,23 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
+import numpy as np
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 SIZES = {"16:9": (1280, 720), "9:16": (1080, 1920)}
-FONTS = [
-    str(Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Anton-Regular.ttf"),
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-    "/Library/Fonts/Arial Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-]
-YELLOW, WHITE, BLACK = (255, 225, 77), (255, 255, 255), (0, 0, 0)
+FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+FONTS = {"anton": "Anton-Regular.ttf", "luckiest": "LuckiestGuy-Regular.ttf", "bangers": "Bangers-Regular.ttf"}
+FONT_NAMES = {"anton": "Impacto", "luckiest": "Divertida", "bangers": "Quadrinho"}
+COLORS = {"amarelo": (255, 214, 0), "laranja": (255, 122, 26), "ciano": (0, 229, 255), "vermelho": (255, 59, 48),
+          "verde": (166, 255, 0), "rosa": (255, 64, 160)}
+SIDES = ("esquerda", "direita", "baixo")
+WHITE, BLACK = (255, 255, 255), (0, 0, 0)
+STYLE_DEFAULTS = {"font": "anton", "color": "amarelo", "side": "direita", "focus": 0.5}
 
 
-def _font(size: int) -> ImageFont.FreeTypeFont:
-    for path in FONTS:
-        if Path(path).exists():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default(size)
+def _font(size: int, name: str = "anton") -> ImageFont.FreeTypeFont:
+    path = FONTS_DIR / FONTS.get(name, FONTS["anton"])
+    return ImageFont.truetype(str(path), size) if path.exists() else ImageFont.load_default(size)
 
 
 def grab_frame(video: str | Path, seconds: float, path: Path) -> Path:
@@ -35,49 +36,82 @@ def grab_frame(video: str | Path, seconds: float, path: Path) -> Path:
     return path
 
 
-def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[str]:
-    lines: list[str] = []
-    for word in text.split():
-        test = f"{lines[-1]} {word}" if lines else word
-        if lines and draw.textlength(test, font=font) <= max_width:
-            lines[-1] = test
-        else:
-            lines.append(word)
-    return lines
+def _lines(text: str) -> list[str]:
+    """Até 2 linhas equilibradas: capa boa tem pouco texto e bem grande."""
+    words = text.upper().split()
+    if len(words) <= 2:
+        return [" ".join(words)] if len(" ".join(words)) <= 12 or len(words) == 1 else words
+    best = min(range(1, len(words)), key=lambda i: abs(len(" ".join(words[:i])) - len(" ".join(words[i:]))))
+    return [" ".join(words[:best]), " ".join(words[best:])]
 
 
-def render_cover(frame: Path, text: str, output: Path, aspect: str = "16:9") -> Path:
-    width, height = SIZES.get(aspect, SIZES["16:9"])
-    image = ImageOps.fit(Image.open(frame).convert("RGB"), (width, height), Image.LANCZOS)
+def _grade(image: Image.Image) -> Image.Image:
+    image = ImageEnhance.Contrast(image).enhance(1.22)
+    image = ImageEnhance.Color(image).enhance(1.4)
     image = ImageEnhance.Brightness(image).enhance(1.1)
-    image = ImageEnhance.Color(ImageEnhance.Contrast(image).enhance(1.12)).enhance(1.25)
+    return image.filter(ImageFilter.UnsharpMask(radius=2, percent=90, threshold=2))
 
-    text = " ".join(text.upper().split())
-    if text:
-        # Faixa escura embaixo para o texto ler bem em qualquer cena.
-        shade = Image.new("L", (1, height))
-        for y in range(height):
-            shade.putpixel((0, y), int(200 * max(0.0, (y / height - 0.45) / 0.55)))
-        image.paste(Image.new("RGB", (width, height), BLACK), (0, 0), shade.resize((width, height)))
 
-        draw = ImageDraw.Draw(image)
-        max_width, size = int(width * 0.9), int(height * (0.2 if aspect == "16:9" else 0.11))
-        while True:
-            font = _font(size)
-            lines = _wrap(draw, text, font, max_width)
-            if (len(lines) <= 2 and all(draw.textlength(line, font=font) <= max_width for line in lines)) or size < 24:
+def _shade(width: int, height: int, side: str) -> Image.Image:
+    """Máscara escura: vinheta nas bordas + degradê do lado onde vai o texto."""
+    y, x = np.ogrid[:height, :width]
+    distance = np.sqrt(((x - width / 2) / (width / 2)) ** 2 + ((y - height / 2) / (height / 2)) ** 2)
+    mask = np.clip((distance - 0.55) / 0.75, 0, 1) * 160
+    if side == "esquerda":
+        mask = np.maximum(mask, np.clip(1 - x / (width * 0.62), 0, 1) * 200)
+    elif side == "direita":
+        mask = np.maximum(mask, np.clip((x - width * 0.38) / (width * 0.62), 0, 1) * 200)
+    else:
+        mask = np.maximum(mask, np.clip((y - height * 0.45) / (height * 0.55), 0, 1) * 210)
+    return Image.fromarray(np.broadcast_to(mask, (height, width)).astype("uint8"))
+
+
+def render_cover(frame: Path, text: str, output: Path, aspect: str = "16:9", font: str = "anton",
+                 color: str = "amarelo", side: str = "direita", focus: float = 0.5) -> Path:
+    width, height = SIZES.get(aspect, SIZES["16:9"])
+    side = side if side in SIDES else "direita"
+    if aspect == "9:16":
+        side = "baixo"
+    # Zoom leve na ação: o assunto fica do lado oposto ao texto.
+    base = ImageOps.fit(Image.open(frame).convert("RGB"), (width, height), Image.LANCZOS,
+                        centering=(max(0.0, min(1.0, focus)), 0.5))
+    zoom = 1.15
+    crop_w, crop_h = int(width / zoom), int(height / zoom)
+    x = int(max(0, min(width - crop_w, focus * width - crop_w / 2)))
+    image = _grade(base.crop((x, (height - crop_h) // 2, x + crop_w, (height + crop_h) // 2)).resize((width, height),
+                                                                                                    Image.LANCZOS))
+    image = Image.composite(Image.new("RGB", (width, height), BLACK), image, _shade(width, height, side))
+
+    lines = _lines(" ".join(text.split()))
+    if lines and lines[0]:
+        layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(layer)
+        box_w = width * (0.9 if side == "baixo" else 0.5)
+        box_h = height * (0.32 if aspect == "9:16" else 0.62)
+        size = int(height * (0.1 if aspect == "9:16" else 0.24))
+        while size > 40:
+            fnt = _font(size, font)
+            if max(draw.textlength(l, font=fnt) for l in lines) <= box_w and size * 1.05 * len(lines) <= box_h:
                 break
-            size = int(size * 0.9)
-        line_height = int(size * 1.12)
-        y = height - int(height * 0.06) - line_height * len(lines)
-        stroke = max(3, size // 12)
+            size = int(size * 0.94)
+        fnt = _font(size, font)
+        line_h = int(size * 1.04)
+        top = (height - line_h * len(lines)) / 2 if side != "baixo" else height * (0.86 if aspect == "16:9" else 0.8) - line_h * len(lines)
+        stroke = max(4, size // 9)
+        accent = COLORS.get(color, COLORS["amarelo"])
         for number, line in enumerate(lines):
-            x = (width - draw.textlength(line, font=font)) / 2
-            # Sombra deslocada para o texto "saltar" da imagem; 1ª linha branca, a última amarela.
-            draw.text((x + stroke, y + stroke * 1.5), line, font=font, fill=BLACK, stroke_width=stroke, stroke_fill=BLACK)
-            color = YELLOW if number == len(lines) - 1 else WHITE
-            draw.text((x, y), line, font=font, fill=color, stroke_width=stroke, stroke_fill=BLACK)
-            y += line_height
+            line_w = draw.textlength(line, font=fnt)
+            left = {"esquerda": width * 0.05, "direita": width * 0.95 - line_w}.get(side, (width - line_w) / 2)
+            y = top + number * line_h
+            fill = accent if number == len(lines) - 1 else WHITE
+            # Sombra deslocada para o texto "saltar" da imagem.
+            draw.text((left + stroke * 0.8, y + stroke * 1.3), line, font=fnt, fill=BLACK, stroke_width=stroke,
+                      stroke_fill=BLACK)
+            draw.text((left, y), line, font=fnt, fill=fill, stroke_width=stroke, stroke_fill=BLACK)
+        tilt = {"esquerda": 3, "direita": -3}.get(side, 2)
+        center = {"esquerda": (width * 0.28, height / 2), "direita": (width * 0.72, height / 2)}.get(side, None)
+        layer = layer.rotate(tilt, resample=Image.BICUBIC, center=center)
+        image.paste(layer, (0, 0), layer)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     image.save(output, "JPEG", quality=92)
@@ -120,6 +154,18 @@ def sharpest_near(video: str | Path, seconds: float, items: list[dict], window: 
     return low + int(np.argmax(scores)) / 4
 
 
+def _style(idea: dict) -> dict:
+    style = {**STYLE_DEFAULTS, **{k: idea[k] for k in STYLE_DEFAULTS if idea.get(k) is not None}}
+    style["font"] = style["font"] if style["font"] in FONTS else "anton"
+    style["color"] = style["color"] if style["color"] in COLORS else "amarelo"
+    style["side"] = style["side"] if style["side"] in SIDES else "direita"
+    try:
+        style["focus"] = max(0.0, min(1.0, float(style["focus"])))
+    except (TypeError, ValueError):
+        style["focus"] = 0.5
+    return style
+
+
 def make_covers(video: str | Path, ideas: list[dict], items: list[dict], folder: Path, aspect: str) -> list[dict]:
     """Gera até 3 capas. Sem ideias da IA, usa o meio dos primeiros trechos com o nome do capítulo."""
     if not ideas:
@@ -129,22 +175,39 @@ def make_covers(video: str | Path, ideas: list[dict], items: list[dict], folder:
     for number, idea in enumerate(ideas[:3], 1):
         seconds = sharpest_near(video, _scene_time(idea.get("time"), items), items)
         frame = grab_frame(video, seconds, folder / f"cena-{number}.jpg")
-        path = render_cover(frame, str(idea.get("text", "")), folder / f"capa-{number}.jpg", aspect)
-        covers.append({"path": str(path), "frame": str(frame), "time": seconds,
-                       "text": str(idea.get("text", "")), "why": str(idea.get("why", ""))})
-    (folder / "capas.json").write_text(json.dumps({"aspect": aspect, "covers": covers}, ensure_ascii=False, indent=1),
-                                       encoding="utf-8")
+        style = _style(idea)
+        path = render_cover(frame, str(idea.get("text", "")), folder / f"capa-{number}.jpg", aspect, **style)
+        covers.append({"path": str(path), "frame": str(frame), "time": seconds, "text": str(idea.get("text", "")),
+                       "why": str(idea.get("why", "")), **style})
+    _save(folder, {"aspect": aspect, "covers": covers})
     return covers
 
 
-def retext_cover(folder: Path, number: int, text: str) -> list[dict]:
-    """Troca o texto de uma capa já gerada (não chama a IA)."""
-    data = json.loads((folder / "capas.json").read_text(encoding="utf-8"))
-    cover = data["covers"][number - 1]
-    render_cover(Path(cover["frame"]), text, Path(cover["path"]), data["aspect"])
-    cover["text"] = text
+def _save(folder: Path, data: dict) -> None:
     (folder / "capas.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def load_covers(folder: Path) -> dict:
+    try:
+        return json.loads((folder / "capas.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"aspect": "16:9", "covers": []}
+
+
+def restyle_cover(folder: Path, number: int, **changes) -> list[dict]:
+    """Muda texto, fonte, cor ou lado de uma capa já feita. Sem IA, na hora."""
+    data = load_covers(folder)
+    cover = data["covers"][number - 1]
+    cover.update({k: v for k, v in changes.items() if v is not None})
+    style = _style(cover)
+    cover.update(style)
+    render_cover(Path(cover["frame"]), cover["text"], Path(cover["path"]), data["aspect"], **style)
+    _save(folder, data)
     return data["covers"]
+
+
+def retext_cover(folder: Path, number: int, text: str) -> list[dict]:
+    return restyle_cover(folder, number, text=text)
 
 
 # ---------------- Cenas candidatas: o PC acha as mais fortes, você (ou a IA) escolhe ----------------
@@ -212,8 +275,7 @@ def use_scene(folder: Path, number: int, video: str | Path, seconds: float) -> l
     """Troca a foto de uma capa por outra cena, mantendo o texto. Sem IA."""
     data = json.loads((folder / "capas.json").read_text(encoding="utf-8"))
     cover = data["covers"][number - 1]
-    frame = grab_frame(video, seconds, Path(cover["frame"]))
-    render_cover(frame, cover["text"], Path(cover["path"]), data["aspect"])
+    grab_frame(video, seconds, Path(cover["frame"]))
     cover["time"] = seconds
-    (folder / "capas.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    return data["covers"]
+    _save(folder, data)
+    return restyle_cover(folder, number)
