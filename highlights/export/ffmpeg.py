@@ -14,10 +14,20 @@ def _ffmpeg() -> str:
     return binary
 
 
-def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspect: str = "16:9", mode: str = "precise") -> list[Path]:
-    output_dir = Path(output_dir)
+def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspect: str = "16:9", mode: str = "precise",
+                focuses: list[float] | None = None, shorts: dict | None = None, notes: list[str] | None = None,
+                progress=None) -> list[Path]:
+    """Corta cada trecho. No 9:16 aplica o layout do Short e, se ligada, a legenda. Áudio sempre normalizado."""
+    from .shorts import DEFAULTS, subtitles_ass, vertical_graph, video_size
+
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    video = Path(video).resolve()
     ffmpeg = _ffmpeg()
+    vertical = aspect == "9:16"
+    shorts = {**DEFAULTS, "subtitles": False, **(shorts or {})}
+    width, height = video_size(video) if vertical and mode != "fast" else (0, 0)
+    want_subtitles = vertical and mode != "fast" and bool(shorts.get("subtitles"))
     paths: list[Path] = []
 
     for index, cut in enumerate(cuts, 1):
@@ -25,24 +35,50 @@ def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspe
         m = int((cut.start % 3600) // 60)
         s = int(cut.start % 60)
         path = output_dir / f"clip_{index:02d}_{h:02d}h{m:02d}m{s:02d}s.mp4"
-        # Mantém a resolução da live (até 1080p): nunca piora um vídeo que já é bom.
-        vf = ["scale=-2:'min(ih,1080)'"]
-        if aspect == "9:16":
-            vf = [
-                "split=2[in][bg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[blur];",
-                "[in]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[blur][fg]overlay=(W-w)/2:(H-h)/2",
-            ]
-        filter_arg = "".join(vf)
-
-        command = [ffmpeg, "-y", "-v", "error"]
+        command = [ffmpeg, "-y", "-v", "error", "-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration)]
         if mode == "fast":
-            command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-map", "0:v:0", "-map", "0:a?", "-c", "copy"]
+            command += ["-map", "0:v:0", "-map", "0:a?", "-c", "copy", str(path)]
+            subprocess.run(command, check=True)
+            paths.append(path)
+            continue
+
+        if vertical:
+            focus = focuses[index - 1] if focuses and index - 1 < len(focuses) else 0.5
+            graph = vertical_graph(width, height, shorts, focus)
         else:
-            command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-vf", filter_arg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"]
-        command.append(str(path))
-        subprocess.run(command, check=True)
+            # Mantém a resolução da live (até 1080p): nunca piora um vídeo que já é bom.
+            graph = "[0:v]scale=-2:'min(ih,1080)',setsar=1[v]"
+
+        if want_subtitles:
+            if progress:
+                progress(index, len(cuts), "Escrevendo a legenda")
+            words = _words(video, cut, notes)
+            if words:
+                name = f"clip_{index:02d}.ass"
+                subtitles_ass(words, output_dir / name)
+                graph = graph[:-3] + f"[raw];[raw]ass={name}[v]"
+        elif progress:
+            progress(index, len(cuts), "Cortando")
+
+        command += ["-filter_complex", graph, "-map", "[v]", "-map", "0:a?",
+                    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "160k",
+                    "-movflags", "+faststart", str(path)]
+        # Roda dentro da pasta dos cortes: o filtro da legenda recebe só o nome do arquivo, sem caminho.
+        subprocess.run(command, check=True, cwd=output_dir)
         paths.append(path)
     return paths
+
+
+def _words(video: Path, cut: Cut, notes: list[str] | None) -> list:
+    try:
+        from ..analysis.transcribe import transcribe_words
+        return transcribe_words(video, cut.start, cut.end)
+    except Exception as error:
+        message = f"Legenda desligada: {error}"
+        if notes is not None and message not in notes:
+            notes.append(message)
+        return []
 
 
 def export_compilation(clips: list[Path], output: str | Path, crossfade: float = 0.0) -> Path:

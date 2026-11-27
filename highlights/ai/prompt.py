@@ -58,6 +58,8 @@ Publicação (campo "publication"), para o vídeo montado, em português do Bras
   tipo de vídeo, sem mentir e sem repetir o título.
   "why": uma frase curta: por que essa cena chama atenção do público desse vídeo.
 - Em cada trecho aprovado, "chapter" é um nome curto de capítulo (ex.: "Boss 1: a virada").
+- Em cada trecho aprovado, "focus" diz onde está a ação na largura da tela, de 0 (esquerda) a 1 (direita),
+  olhando as fotos. Serve para cortar o vídeo na vertical sem perder o que importa. Na dúvida, 0.5.
 Siga o estilo do canal se ele vier nos dados.
 
 Escreva os motivos em português, em uma frase curta e concreta (o que acontece no trecho e por que
@@ -86,8 +88,10 @@ PLAN_SCHEMA: dict = {
                     "confidence": {"type": "number"},
                     "transition": {"type": "string", "enum": ["corte", "fade", "fade_preto", "deslizar"]},
                     "chapter": {"type": "string"},
+                    "focus": {"type": "number"},
                 },
-                "required": ["id", "start", "end", "order", "kind", "reason", "confidence", "transition", "chapter"],
+                "required": ["id", "start", "end", "order", "kind", "reason", "confidence", "transition", "chapter",
+                             "focus"],
                 "additionalProperties": False,
             },
         },
@@ -131,7 +135,7 @@ JSON_INSTRUCTION = """\
 Responda somente com um objeto JSON válido, sem texto antes ou depois, neste formato:
 {"summary": "...", "approved": [{"id": "...", "start": 0, "end": 0, "order": 1, "kind": "...",
 "reason": "...", "confidence": 0.0,
-"transition": "corte", "chapter": "..."}], "rejected": [{"id": "...", "reason": "..."}],
+"transition": "corte", "chapter": "...", "focus": 0.5}], "rejected": [{"id": "...", "reason": "..."}],
 "publication": {"titles": ["...", "...", "..."], "description": "...", "hashtags": ["#..."],
 "covers": [{"time": 0, "text": "...", "why": "..."}]}}
 """

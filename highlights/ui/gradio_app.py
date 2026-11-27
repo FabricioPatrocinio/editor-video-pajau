@@ -11,6 +11,7 @@ from ..ai.style import MOMENT_TYPES, ORDERS, VIDEO_TYPES, compose_briefing, load
 from ..analysis.transcribe import transcription_enabled
 from ..export.transitions import TRANSITIONS, make_preview
 from ..export.covers import retext_cover
+from ..export.shorts import CORNERS, LAYOUTS, load_settings, preview_frame, save_settings
 from ..pipeline import (analysis_mode, export_plan, find_candidates, find_segments_with_map, load_candidates,
                         make_publication_covers, muted_warning, plan_with_ai, publication_text, video_path,
                         write_publication)
@@ -34,6 +35,17 @@ def windows_para_wsl(caminho: str) -> str:
     if len(caminho) > 2 and caminho[1] == ":" and caminho[2] in "\\/" and Path("/mnt/c").exists():
         return f"/mnt/{caminho[0].lower()}/" + caminho[3:].replace("\\", "/")
     return caminho
+
+
+def keep_upload(path: str, folder: Path = Path("data") / "lives") -> str:
+    """O upload fica numa pasta temporária que o Gradio apaga ao fechar. Move a live para data/lives
+    (na mesma partição é instantâneo), para dar para refazer o plano ou gerar de novo depois."""
+    import shutil
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / Path(path).name
+    if not target.exists():
+        shutil.move(path, target)
+    return str(target.resolve())
 
 
 def _file_path(value):
@@ -91,6 +103,13 @@ def _overview(plan: list[dict], accepted: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
+LAYOUT_NAMES = {code: name for name, code in LAYOUTS.items()}
+
+
+def _shorts(layout_name, corner, size, subtitles) -> dict:
+    return {"layout": LAYOUTS.get(layout_name, "cheio"), "corner": corner, "camera_size": size, "subtitles": bool(subtitles)}
+
+
 def _gallery(covers: list[dict]):
     return [(cover["path"], f"{number}. {cover['why']}") for number, cover in enumerate(covers, 1)]
 
@@ -124,6 +143,8 @@ def _view(output: str, plan: list[dict], transcripts: dict, index: int):
 def build_app():
     style = load_style()
 
+    short = load_settings()
+
     with gr.Blocks(title="Pajau") as app:
         gr.Markdown("# Pajau\nDiga que vídeo você quer. A IA escolhe os trechos, você confere e gera.")
         gr.Markdown(_status_text())
@@ -150,6 +171,19 @@ def build_app():
                 video_type = gr.Dropdown(VIDEO_TYPES, value=VIDEO_TYPES[0], label="Tipo de vídeo")
                 duration = gr.Number(label="Minutos", value=10, minimum=1, maximum=60)
                 aspect = gr.Radio(["16:9", "9:16"], value="16:9", label="Formato")
+            with gr.Group(visible=False) as short_box:
+                gr.Markdown("### 📱 Short\nTudo aqui é feito no seu computador, sem gastar IA.")
+                with gr.Row():
+                    short_layout = gr.Radio(list(LAYOUTS), value=LAYOUT_NAMES[short["layout"]], label="Layout")
+                    short_subtitles = gr.Checkbox(value=short["subtitles"], label="Legenda na tela (palavra a palavra)")
+                with gr.Row(visible=short["layout"] == "camera") as camera_row:
+                    short_corner = gr.Dropdown(CORNERS, value=short["corner"], label="Onde fica a sua câmera na live")
+                    short_size = gr.Slider(10, 50, value=short["camera_size"], step=1,
+                                           label="Largura da câmera (% da tela)")
+                with gr.Row():
+                    short_preview_button = gr.Button("👀 Ver como fica", size="sm")
+                    short_info = gr.Markdown("")
+                short_preview = gr.Image(label="Prévia do Short", height=420, visible=False, interactive=False)
             moments = gr.CheckboxGroup(MOMENT_TYPES, value=MOMENT_TYPES[:3], label="Priorizar")
             order = gr.Radio(ORDERS, value=ORDERS[0], label="Ordem")
             extra = gr.Textbox(label="Algo mais? (opcional)", lines=2, placeholder="Ex.: foca na luta contra a Malenia")
@@ -259,6 +293,8 @@ def build_app():
                 return _fail(f"Arquivo não encontrado: {source}")
             if not source:
                 return _fail("Escolha a live primeiro.")
+            if not (video_text or "").strip():
+                source = keep_upload(source)
             problem = check_ai_ready()
             if problem:
                 return _fail(problem)
@@ -315,7 +351,7 @@ def build_app():
             index += 1
             return (*_view(output, plan, transcripts, index), index, accepted, _overview(plan, accepted))
 
-        def export(output, plan, aspect_value, only_ids, publication, progress):
+        def export(output, plan, aspect_value, only_ids, publication, shorts, progress):
             if not output or not plan:
                 return None, "Analise uma live primeiro.", gr.skip(), gr.skip(), gr.skip()
             items = plan if only_ids is None else [item for item in plan if item["id"] in only_ids]
@@ -323,13 +359,18 @@ def build_app():
                 return None, "Marque pelo menos um trecho com Gostei.", gr.skip(), gr.skip(), gr.skip()
             progress(0.1, desc=f"Cortando {len(items)} trechos e aplicando transições...")
             try:
-                path = export_plan(Path(output), items, aspect_value)
+                notes: list[str] = []
+                step = lambda done, total, text: progress(0.1 + 0.8 * done / max(1, total),
+                                                          desc=f"{text}: trecho {done} de {total}")
+                path = export_plan(Path(output), items, aspect_value, shorts if aspect_value == "9:16" else None,
+                                   notes, step)
                 # Capítulos refeitos com os trechos que realmente entraram no vídeo.
                 text = write_publication(Path(output), publication, items, aspect_value)
                 progress(0.95, desc="Montando as capas...")
                 covers = make_publication_covers(Path(output), publication, items, aspect_value)
                 first = covers[0]["text"] if covers else ""
-                return str(path), f"Salvo em `{path}`", text, _gallery(covers), first
+                warning = "".join(f"\n\n⚠️ {note}" for note in notes)
+                return str(path), f"Salvo em `{path}`{warning}", text, _gallery(covers), first
             except Exception as error:
                 return None, f"Erro: {error}", gr.skip(), gr.skip(), gr.skip()
 
@@ -381,16 +422,49 @@ def build_app():
                          [*view_outputs, index_state, accepted_state, overview]).then(
                 lambda plan, index: _nav(3 if index >= len(plan) else 2, plan, index), [plan_state, index_state], nav_outputs)
 
-        def export_all(output, plan, aspect_value, publication, progress=gr.Progress()):
-            return export(output, plan, aspect_value, None, publication, progress)
+        def export_all(output, plan, aspect_value, publication, layout, corner, size, subtitles,
+                       progress=gr.Progress()):
+            return export(output, plan, aspect_value, None, publication, _shorts(layout, corner, size, subtitles),
+                          progress)
 
-        def export_liked(output, plan, aspect_value, accepted, publication, progress=gr.Progress()):
-            return export(output, plan, aspect_value, accepted, publication, progress)
+        def export_liked(output, plan, aspect_value, accepted, publication, layout, corner, size, subtitles,
+                         progress=gr.Progress()):
+            return export(output, plan, aspect_value, accepted, publication, _shorts(layout, corner, size, subtitles),
+                          progress)
+
+        short_inputs = [short_layout, short_corner, short_size, short_subtitles]
+        aspect.change(lambda value: gr.Group(visible=value == "9:16"), aspect, short_box)
+        short_layout.change(lambda name: gr.Row(visible=LAYOUTS.get(name) == "camera"), short_layout, camera_row)
+        for control in short_inputs:
+            control.change(lambda layout, corner, size, subtitles: save_settings(_shorts(layout, corner, size, subtitles))
+                           and None, short_inputs, None)
+
+        def show_short_preview(output, plan, video_file, video_text, layout, corner, size, subtitles):
+            values = (layout, corner, size, subtitles)
+            try:
+                if output and plan:
+                    item = plan[0]
+                    source, seconds, focus = video_path(Path(output)), (item["start"] + item["end"]) / 2, item.get("focus", 0.5)
+                else:
+                    from ..download.youtube import probe_video
+                    source = windows_para_wsl((video_text or "").strip().strip("'\"")) or _file_path(video_file)
+                    if not source or not Path(source).exists():
+                        return gr.Image(visible=False), "Escolha a live primeiro."
+                    seconds, focus = probe_video(source)["duration"] / 3, 0.5
+                frame = preview_frame(source, seconds, _shorts(*values), Path("data") / "previa-short.jpg", focus)
+                hint = "" if output and plan else " Depois da análise, a prévia usa o foco que a IA escolher."
+                return gr.Image(value=str(frame), visible=True), "Assim fica o Short." + hint
+            except Exception as error:
+                return gr.Image(visible=False), f"Erro na prévia: {error}"
+
+        short_preview_button.click(show_short_preview, [output_state, plan_state, video, video_text, *short_inputs],
+                                   [short_preview, short_info])
 
         export_outputs = [result, result_path, publication_box, covers_gallery, cover_text]
-        accept_all.click(export_all, [output_state, plan_state, aspect, publication_state], export_outputs)
-        export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state, publication_state],
-                            export_outputs)
+        accept_all.click(export_all, [output_state, plan_state, aspect, publication_state, *short_inputs],
+                         export_outputs)
+        export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state, publication_state,
+                                           *short_inputs], export_outputs)
         cover_number.change(pick_cover, [output_state, cover_number], cover_text)
         cover_button.click(change_cover_text, [output_state, cover_number, cover_text], covers_gallery)
 

@@ -240,7 +240,8 @@ def video_path(output: Path) -> str:
     return json.loads((output / "project.json").read_text(encoding="utf-8"))["video_path"]
 
 
-def export_plan(output: Path, items: list[PlanItem] | list[dict], aspect: str) -> Path:
+def export_plan(output: Path, items: list[PlanItem] | list[dict], aspect: str, shorts: dict | None = None,
+                notes: list[str] | None = None, progress=None) -> Path:
     from .export.ffmpeg import export_cuts
     from .export.transitions import join_with_transitions
 
@@ -251,7 +252,12 @@ def export_plan(output: Path, items: list[PlanItem] | list[dict], aspect: str) -
     cuts = [Cut(start=float(row["start"]), end=float(row["end"]), score=float(row.get("confidence", 1.0))) for row in rows]
 
     stamp = datetime.now().strftime("%H%M%S")
-    clips = export_cuts(project["video_path"], cuts, output / f"clips-{stamp}", aspect, "precise")
+    if aspect == "9:16" and shorts is None:
+        from .export.shorts import load_settings
+        shorts = load_settings()
+    focuses = [float(row.get("focus", 0.5)) for row in rows]
+    clips = export_cuts(project["video_path"], cuts, output / f"clips-{stamp}", aspect, "precise",
+                        focuses=focuses, shorts=shorts, notes=notes, progress=progress)
     return join_with_transitions(clips, [row.get("transition", "corte") for row in rows], output / f"video-final-{stamp}.mp4")
 
 
