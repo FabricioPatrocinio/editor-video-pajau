@@ -131,6 +131,15 @@ TRANSITION_NAMES = [("Corte seco (padrão)", "corte"), ("Dissolver", "fade"),
                     ("Escurecer (mudou de assunto)", "fade_preto"), ("Deslizar", "deslizar")]
 
 
+def _briefing(game, vtype, moments, order, extra, aspect: str, duration) -> str:
+    """Pedido para a IA. No Short ela já sabe, desde o mapa da live, que é um vídeo vertical curto."""
+    text = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
+    if aspect == "9:16":
+        text += (f" Formato: Short vertical de até {target_seconds(duration, aspect):.0f} s. Prefira um momento forte"
+                 " que se entenda sozinho e comece direto na ação.")
+    return text
+
+
 def target_seconds(duration, aspect: str) -> float:
     """A duração vem em segundos no Short e em minutos no vídeo horizontal."""
     value = float(duration or DURATION.get(aspect, DURATION["16:9"])["value"])
@@ -260,7 +269,7 @@ def build_app():
                             game = gr.Textbox(label="Jogo", placeholder="Ex.: Elden Ring", min_width=160)
                             video_type = gr.Dropdown(VIDEO_TYPES, value=VIDEO_TYPES[0], label="Tipo de vídeo",
                                                      min_width=160)
-                            duration = gr.Number(**DURATION["16:9"], min_width=130)
+                            duration = gr.Number(**DURATION[short["aspect"]], min_width=130)
                         moments = gr.CheckboxGroup(MOMENT_TYPES, value=MOMENT_TYPES[:3], label="Priorizar")
                         order = gr.Radio(ORDERS, value=ORDERS[0], label="Ordem")
                         extra = gr.Textbox(label="Algo mais? (opcional)", lines=2,
@@ -278,7 +287,7 @@ def build_app():
                                     ["Minecraft", "Engraçados", ["Morte engraçada", "Reação forte", "Papo com o chat"],
                                      "Mais forte primeiro", "Ritmo rápido, trechos de 15 a 30s.",
                                      "leitura de doações, pausas, telas de loading"],
-                                    ["", "Short vertical", ["Reação forte", "Jogada difícil"], "IA decide",
+                                    ["", "Melhores momentos", ["Reação forte", "Jogada difícil"], "IA decide",
                                      "Um único momento de até 60s que se entenda sozinho.",
                                      "trechos que dependem do que aconteceu antes"],
                                 ],
@@ -304,9 +313,9 @@ def build_app():
                 with gr.Column(scale=2, min_width=300):
                     with gr.Column(elem_classes="pj-card"):
                         gr.Markdown("3 · Formato", elem_classes="pj-step")
-                        aspect = gr.Radio([("🖥️ Horizontal 16:9", "16:9"), ("📱 Short 9:16", "9:16")], value="16:9",
-                                          show_label=False)
-                        with gr.Column(visible=False) as short_box:
+                        aspect = gr.Radio([("🖥️ Horizontal 16:9", "16:9"), ("📱 Short 9:16", "9:16")],
+                                          value=short["aspect"], show_label=False)
+                        with gr.Column(visible=short["aspect"] == "9:16") as short_box:
                             short_layout = gr.Radio(list(LAYOUTS), value=LAYOUT_NAMES[short["layout"]], label="Layout")
                             short_zoom = gr.Slider(0, 100, value=short["zoom"], step=5, visible=short["layout"] == "jogo",
                                                    label="Zoom no jogo", info="0 = vídeo inteiro · 100 = tela cheia")
@@ -401,7 +410,7 @@ def build_app():
         def _plan(output, candidates, game, vtype, moments, order, extra, avoid, minutes, aspect_value, progress):
             settings = load_ai_settings()
             progress(0.92, f"{settings.label} montando o plano...")
-            briefing = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
+            briefing = _briefing(game, vtype, moments, order, extra, aspect_value, minutes)
             plan = plan_with_ai(Path(output), candidates, briefing, avoid or "", target_seconds(minutes, aspect_value),
                                 aspect_value)
             data = [asdict(item) for item in plan.items]
@@ -430,7 +439,7 @@ def build_app():
                 report = lambda fraction, text: progress(fraction * 0.9, desc=text)
                 target = target_seconds(minutes, aspect_value)
                 if analysis_mode() == "mapa":
-                    briefing = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
+                    briefing = _briefing(game, vtype, moments, order, extra, aspect_value, minutes)
                     output, candidates, summary = find_segments_with_map(
                         source, briefing, avoid or "", target, _parse_intervals(ignore_text), progress=report)
                     if not candidates:
@@ -574,6 +583,13 @@ def build_app():
 
         app.load(refresh_previous, None, previous)
 
+        def restore_format():
+            # Lido a cada abertura da página (e não só quando o servidor sobe): volta no último formato usado.
+            saved = load_settings()["aspect"]
+            return gr.Radio(value=saved), gr.Column(visible=saved == "9:16"), gr.Number(**DURATION[saved])
+
+        app.load(restore_format, None, [aspect, short_box, duration])
+
         go_request.click(lambda plan, index: _nav(1, plan, index), [plan_state, index_state], nav_outputs).then(
             None, js=SCROLL_TOPO)
         go_review.click(lambda plan, index: _nav(2, plan, index), [plan_state, index_state], nav_outputs).then(
@@ -601,13 +617,17 @@ def build_app():
             return export(output, plan, aspect_value, accepted, publication,
                           _shorts(layout, zoom, corner, size, follow, subtitles), progress)
 
-        aspect.change(lambda value: (gr.Column(visible=value == "9:16"), gr.Number(**DURATION[value])), aspect,
-                      [short_box, duration])
+        def change_format(value):
+            save_settings({**load_settings(), "aspect": value})  # abre no mesmo formato da próxima vez
+            return gr.Column(visible=value == "9:16"), gr.Number(**DURATION[value])
+
+        aspect.change(change_format, aspect, [short_box, duration])
         short_layout.change(lambda name: (gr.Column(visible=LAYOUTS.get(name) == "camera"),
                                           gr.Slider(visible=LAYOUTS.get(name) == "jogo")),
                             short_layout, [camera_row, short_zoom])
         for control in short_inputs:
-            control.change(lambda *values: save_settings(_shorts(*values)) and None, short_inputs, None)
+            control.change(lambda *values: save_settings({**load_settings(), **_shorts(*values)}) and None,
+                           short_inputs, None)
 
         def show_short_preview(output, plan, video_file, video_text, layout, zoom, corner, size, follow, subtitles):
             settings = _shorts(layout, zoom, corner, size, follow, subtitles)

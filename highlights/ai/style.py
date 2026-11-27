@@ -9,7 +9,8 @@ from pathlib import Path
 
 STYLE_FILE = Path("data") / "estilo.json"
 
-VIDEO_TYPES = ["Melhores momentos", "Só vitórias contra bosses", "Engraçados", "Resumo da live", "Short vertical"]
+# O formato (horizontal ou Short) é escolhido à parte, então não entra aqui.
+VIDEO_TYPES = ["Melhores momentos", "Só vitórias contra bosses", "Engraçados", "Resumo da live"]
 MOMENT_TYPES = ["Vitória em boss", "Morte engraçada", "Reação forte", "Jogada difícil", "Papo com o chat", "Raiva / rage"]
 ORDERS = ["Ordem da live", "Mais forte primeiro", "IA decide"]
 

@@ -24,3 +24,17 @@ def test_duracao_em_segundos_no_short_e_minutos_no_horizontal():
 def test_motivo_mostra_horario_da_live_no_lugar_de_t():
     from highlights.ui.gradio_app import friendly_reason
     assert friendly_reason("contra-ataque em t=544 e golpe em t=3725") == "contra-ataque em 09:04 e golpe em 01:02:05"
+
+
+def test_pedido_do_short_avisa_a_ia_desde_o_mapa():
+    from highlights.ui.gradio_app import _briefing
+    assert "Short vertical de até 45 s" in _briefing("Onimusha", "Melhores momentos", [], "", "", "9:16", 45)
+    assert "Short" not in _briefing("Onimusha", "Melhores momentos", [], "", "", "16:9", 10)
+
+
+def test_formato_fica_salvo_sem_perder_o_resto(tmp_path, monkeypatch):
+    from highlights.export import shorts
+    monkeypatch.setattr(shorts, "SETTINGS_FILE", tmp_path / "shorts.json")
+    shorts.save_settings({**shorts.load_settings(), "zoom": 60})
+    shorts.save_settings({**shorts.load_settings(), "aspect": "9:16"})
+    assert shorts.load_settings()["aspect"] == "9:16" and shorts.load_settings()["zoom"] == 60

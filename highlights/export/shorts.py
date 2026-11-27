@@ -20,7 +20,7 @@ LAYOUTS = {
 CORNERS = ["inferior direito", "inferior esquerdo", "superior direito", "superior esquerdo"]
 # zoom: 0 = vídeo inteiro (faixa no meio), 100 = tela cheia. follow = o recorte acompanha a ação.
 DEFAULTS = {"layout": "jogo", "zoom": 35, "follow": True, "corner": "inferior direito", "camera_size": 25,
-            "subtitles": True}
+            "subtitles": True, "aspect": "16:9"}  # aspect: o último formato escolhido na tela
 
 W, H = 1080, 1920
 CAMERA_HEIGHT = 640  # parte de cima no layout "câmera"; o jogo fica com os 1280 de baixo
