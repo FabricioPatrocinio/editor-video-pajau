@@ -8,3 +8,5 @@ output/
 *.webm
 *.log
 *.egg-info/
+.env
+data/

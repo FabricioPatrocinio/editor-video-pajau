@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 
 import numpy as np
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from .analysis.audio import extract_mono_audio
 from .analysis.signals import build_signal_bundle
@@ -42,9 +45,13 @@ def analyze(args: argparse.Namespace) -> int:
     if not source:
         raise ValueError("Informe --input ou --url")
 
+    progress = getattr(args, "progress", None) or (lambda fraction, text: None)
+    progress(0.02, "Lendo o vídeo...")
     video, info = download_media(source, cache / "downloads")
     duration = probe_video(video)["duration"]
+    progress(0.08, "Extraindo o áudio...")
     wav = extract_mono_audio(video, cache / "audio" / "mono.wav")
+    progress(0.2, "Medindo volume e mudanças de cena (é a parte mais demorada)...")
 
     chat_path = args.chat
     manual_path = args.manual
@@ -75,6 +82,7 @@ def analyze(args: argparse.Namespace) -> int:
         }
 
     project = Project(source=source, video_path=str(video), duration=duration, settings=settings, cuts=cuts)
+    progress(0.65, f"Gerando miniaturas de {len(cuts)} candidatos...")
     generate_cut_previews(video, cuts, output / "previews")
     cuts = deduplicate_cuts(cuts, output / "previews")
     project = Project(source=source, video_path=str(video), duration=duration, settings=settings, cuts=cuts)
@@ -99,6 +107,44 @@ def analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def auto(args: argparse.Namespace) -> int:
+    from .ai.config import check_ai_ready, load_ai_settings
+    from .pipeline import export_plan, find_candidates, plan_with_ai
+
+    settings = load_ai_settings()
+    problem = check_ai_ready(settings)
+    if problem:
+        print(problem)
+        return 1
+    if not (args.input or args.url):
+        print("Informe --input ou --url")
+        return 1
+
+    target = args.minutes * 60
+    print("1/3 Procurando candidatos na live...")
+    output, candidates = find_candidates(
+        args.url or args.input, target, [list(item) for item in args.ignore or []], url=bool(args.url),
+        progress=lambda fraction, text: print(f"    {text}"),
+    )
+    if not candidates:
+        print("Nenhum candidato encontrado.")
+        return 1
+
+    print(f"2/3 {settings.label} analisando {len(candidates)} candidatos...")
+    plan = plan_with_ai(output, candidates, args.briefing, args.avoid, target)
+    print(f"\n{plan.summary}\n")
+    for index, item in enumerate(plan.items, 1):
+        print(f"  {index:02d}. {item.start:8.1f}s - {item.end:8.1f}s  [{item.kind}] ({item.transition}) {item.reason}")
+    print(f"\nUso: {plan.usage}")
+    print(f"Plano salvo em {output / 'ia-plan.json'}")
+
+    if args.plan_only or not plan.items:
+        return 0
+    print("3/3 Exportando vídeo...")
+    print(f"Vídeo final: {export_plan(output, plan.items, args.aspect)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pajau", description="Gerador open-source de cortes de lives")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -117,6 +163,17 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--review-only", action="store_true", help="Gerar cortes e prévias sem criar o compilado")
     analyze_parser.add_argument("--ignore", action="append", nargs=2, type=float, metavar=("START", "END"), help="Intervalo a ignorar em segundos")
     analyze_parser.set_defaults(func=analyze)
+
+    auto_parser = sub.add_parser("auto", help="Live -> IA escolhe os trechos -> vídeo final, sem revisão")
+    auto_parser.add_argument("--input", help="Arquivo de vídeo local")
+    auto_parser.add_argument("--url", help="URL do YouTube")
+    auto_parser.add_argument("--briefing", default="", help="Como você quer o vídeo (opcional se o seu estilo estiver salvo)")
+    auto_parser.add_argument("--avoid", default="", help="O que a IA deve ignorar, em linguagem natural")
+    auto_parser.add_argument("--minutes", type=float, default=10, help="Duração alvo do vídeo final")
+    auto_parser.add_argument("--aspect", choices=["16:9", "9:16"], default="16:9")
+    auto_parser.add_argument("--ignore", action="append", nargs=2, type=float, metavar=("START", "END"), help="Intervalo a ignorar em segundos")
+    auto_parser.add_argument("--plan-only", action="store_true", help="Só gerar o plano da IA, sem exportar o vídeo")
+    auto_parser.set_defaults(func=auto)
 
     ui_parser = sub.add_parser("ui", help="Abrir interface Gradio")
     ui_parser.add_argument("--host", default="127.0.0.1")

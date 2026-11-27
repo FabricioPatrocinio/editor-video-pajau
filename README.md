@@ -1,78 +1,43 @@
 # Pajau
 
-Pajau é uma ferramenta open-source para encontrar melhores momentos em lives longas usando sinais de vídeo e áudio, sem IA/ML/LLM.
+Transforma uma live longa em um vídeo de melhores momentos. Você diz o que quer, a IA escolhe os trechos e as transições, você confere e gera.
 
-## Recursos
-
-- Arquivos locais MP4/MKV/MOV/WEBM ou URL opcional do YouTube
-- Sinais de áudio, chat, heatmap, cenas, silêncio e timestamps manuais
-- Redistribuição automática de pesos para sinais indisponíveis
-- Clips separados, compilado, CSV/JSON, gráfico e timeline MLT/EDL
-- CLI e interface Gradio básica
-- Cache dos sinais extraídos
-
-## Pré-requisitos
+## Começar
 
 ```bash
-sudo apt update
-sudo apt install ffmpeg python3 python3-venv
+sudo apt install ffmpeg python3-venv
+make instalar
 ```
 
-## Instalação
+Coloque sua chave no `.env` (`ANTHROPIC_API_KEY=`). Crie a chave em https://platform.claude.com/settings/keys
+
+## Usar
 
 ```bash
-cd ~/Documentos/editor-video-pajau
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e .
+make ui                                                  # interface no navegador
+make cortar VIDEO=live.mp4 PEDIDO="vitórias contra boss"  # direto para o vídeo final
+make plano  VIDEO=live.mp4 PEDIDO="..."                   # só vê o plano, não gera vídeo
 ```
 
-## Uso por arquivo local
+Na interface, salve uma vez o **Meu estilo**. Depois, cada pedido pode ser curto. Os seus "Gostei" e "Não quero" ensinam a IA.
 
-```bash
-python main.py analyze --input /caminho/live.mp4 --preset highlights_10min
-```
+## Como a IA escolhe
 
-Arquivo local é recomendado para controlar qualidade e evitar o download da plataforma.
+A IA **não** assiste à live. O seu computador faz o trabalho pesado:
 
-## Exemplo para Shorts verticais
+1. O FFmpeg mede o volume e as mudanças de cena e acha uns 40–60 trechos candidatos.
+2. Cada candidato vira 3 fotos pequenas (480px) e, opcionalmente, uma transcrição feita no seu PC.
+3. Só isso vai para a IA: a lista, o texto e as fotos. Ela devolve quais trechos usar, em que ordem e com qual transição.
 
-```bash
-python main.py analyze --input /caminho/live.mp4 --preset shorts_60s_vertical --aspect 9:16
-```
+**Custo:** cerca de 25 mil tokens por análise, sendo metade das fotos. Com o Claude Opus, isso dá por volta de US$ 0,20–0,30. O "Refazer só o plano" reaproveita o que já foi enviado e sai bem mais barato. Mandar o vídeo inteiro custaria centenas de vezes mais.
 
-## URL do YouTube
+## Configurar
 
-```bash
-python main.py analyze --url "https://youtube.com/watch?v=ID" --preset highlights_10min
-```
+Tudo fica no `.env`; os valores possíveis estão em `.env.example`. O principal:
 
-A qualidade de download e os formatos de vídeo são definidos pelo yt-dlp. Antes de uma interface completa, configure o formato em `highlights/download/youtube.py`.
-
-## Interface
-
-```bash
-python main.py ui --host 127.0.0.1 --port 7860
-```
-
-## Saídas
-
-A saída padrão fica em `output/`:
-
-- `clips/clip_*.mp4`
-- `compilation.mp4`
-- `project.json`
-- `cuts.csv` e `cuts.json`
-- `score.png`
-- `kdenlive.mlt`
-- `timeline.edl`
-
-O cache fica em `cache/signals.npz` e permite reajustar a combinação de sinais sem repetir toda a extração.
-
-## Testes
-
-```bash
-pip install pytest
-pytest -q
-```
+| Variável | Para quê |
+|---|---|
+| `PAJAU_USE_CLAUDE` | `true` = Claude, `false` = OpenAI |
+| `ANTHROPIC_MODEL` | `claude-opus-5-5` (padrão) ou `claude-sonnet-5-5` (metade do preço) |
+| `PAJAU_TRANSCRIBE` | `true` transcreve as falas (melhora muito as escolhas) |
+| `PAJAU_AI_DAILY_LIMIT_USD` | trava de gasto por dia |
