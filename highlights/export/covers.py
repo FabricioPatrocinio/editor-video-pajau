@@ -95,6 +95,31 @@ def _scene_time(seconds, items: list[dict]) -> float:
     return (items[0]["start"] + items[0]["end"]) / 2 if items else 0.0
 
 
+def sharpest_near(video: str | Path, seconds: float, items: list[dict], window: float = 1.5) -> float:
+    """A IA aponta o segundo vendo fotos pequenas; aqui o PC olha em volta (±1,5 s, dentro do trecho)
+    e fica com o quadro mais nítido e forte, para a capa não sair borrada. Sem IA."""
+    import tempfile
+    import numpy as np
+    item = next((i for i in items if i["start"] <= seconds <= i["end"]), None)
+    low = max(item["start"] if item else 0.0, seconds - window)
+    high = min(item["end"] if item else seconds + window, seconds + window)
+    if high - low < 0.5:
+        return seconds
+    with tempfile.TemporaryDirectory() as tmp:
+        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+        subprocess.run([ffmpeg, "-v", "error", "-ss", f"{low:.2f}", "-t", f"{high - low:.2f}", "-i", str(video),
+                        "-vf", "fps=4,scale=320:-2", "-q:v", "4", f"{tmp}/q-%02d.jpg"], check=True)
+        frames = sorted(Path(tmp).glob("q-*.jpg"))
+        if not frames:
+            return seconds
+        data = [_frame_scores(path) for path in frames]
+    rank = lambda values: np.argsort(np.argsort(values)) / max(1, len(values) - 1)
+    sharp, color, contrast = (rank(np.array([d[i] for d in data])) for i in range(3))
+    scores = [0.5 * sharp[i] + 0.25 * color[i] + 0.25 * contrast[i] - max(0.0, 50 - d[3]) / 25
+              for i, d in enumerate(data)]
+    return low + int(np.argmax(scores)) / 4
+
+
 def make_covers(video: str | Path, ideas: list[dict], items: list[dict], folder: Path, aspect: str) -> list[dict]:
     """Gera até 3 capas. Sem ideias da IA, usa o meio dos primeiros trechos com o nome do capítulo."""
     if not ideas:
@@ -102,7 +127,7 @@ def make_covers(video: str | Path, ideas: list[dict], items: list[dict], folder:
                  for i in items[:3]]
     covers = []
     for number, idea in enumerate(ideas[:3], 1):
-        seconds = _scene_time(idea.get("time"), items)
+        seconds = sharpest_near(video, _scene_time(idea.get("time"), items), items)
         frame = grab_frame(video, seconds, folder / f"cena-{number}.jpg")
         path = render_cover(frame, str(idea.get("text", "")), folder / f"capa-{number}.jpg", aspect)
         covers.append({"path": str(path), "frame": str(frame), "time": seconds,
@@ -181,21 +206,6 @@ def scene_candidates(video: str | Path, items: list[dict], folder: Path, count: 
     scenes = [{"time": frames[i][0], "path": str(frames[i][1])} for i in sorted(chosen, key=lambda j: frames[j][0])]
     (folder / "cenas.json").write_text(json.dumps(scenes, ensure_ascii=False, indent=1), encoding="utf-8")
     return scenes
-
-
-def scenes_sheet(scenes: list[dict], output: Path) -> Path:
-    """Folha única com as cenas numeradas (4 por linha), para a IA escolher vendo uma imagem só."""
-    columns, width, height = 4, 320, 180
-    rows = (len(scenes) + columns - 1) // columns
-    sheet = Image.new("RGB", (columns * width, rows * height), BLACK)
-    draw = ImageDraw.Draw(sheet)
-    font = _font(44)
-    for number, scene in enumerate(scenes, 1):
-        x, y = (number - 1) % columns * width, (number - 1) // columns * height
-        sheet.paste(ImageOps.fit(Image.open(scene["path"]).convert("RGB"), (width, height)), (x, y))
-        draw.text((x + 10, y + 6), str(number), font=font, fill=YELLOW, stroke_width=4, stroke_fill=BLACK)
-    sheet.save(output, "JPEG", quality=80)
-    return output
 
 
 def use_scene(folder: Path, number: int, video: str | Path, seconds: float) -> list[dict]:

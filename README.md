@@ -107,7 +107,6 @@ A IA **nunca assiste ao vídeo**. Ela só recebe fotos pequenas e o texto do que
 | **1. Mapa da live**: fotos a cada 20 s para achar o que você pediu | Sim | 211 mil tokens de entrada (71% reaproveitados do cache) e 6 mil de saída ≈ **US$ 0,64** |
 | **2. Plano**: trechos, ordem, transições, títulos e ideias de capa | Sim | 91 mil de entrada (63% do cache) e 2 mil de saída ≈ **US$ 0,33** |
 | **Refazer só o plano** | Só a etapa 2 | ≈ US$ 0,33 a 0,51 |
-| **🤖 IA escolher a capa** (botão opcional) | Sim, 1 imagem | ≈ 2 mil tokens pela API |
 | Cortes, transições, legenda, Short, volume, capas, prévias | **Não** | US$ 0 |
 
 **No total:** cerca de **US$ 1 por live** pela API (medido: US$ 0,97 numa live de 3h14 e US$ 0,88 numa de 2h07, com o Claude Opus).

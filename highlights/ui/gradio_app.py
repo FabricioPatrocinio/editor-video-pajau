@@ -11,7 +11,7 @@ from ..ai.config import check_ai_ready, load_ai_settings
 from ..ai.style import MOMENT_TYPES, ORDERS, VIDEO_TYPES, compose_briefing, load_style, save_style_text
 from ..analysis.transcribe import transcription_enabled
 from ..export.transitions import TRANSITIONS, make_preview
-from ..export.covers import retext_cover, scene_candidates, scenes_sheet, use_scene
+from ..export.covers import retext_cover, scene_candidates, use_scene
 from ..export.shorts import CORNERS, LAYOUTS, load_settings, preview_frame, save_settings
 from ..pipeline import (analysis_mode, export_plan, find_candidates, find_segments_with_map, load_candidates,
                         make_publication_covers, muted_warning, plan_with_ai, publication_text, video_path,
@@ -189,13 +189,14 @@ def _plan_item(raw: dict):
 
 
 def _gallery(covers: list[dict]):
-    """As 3 capas, cada uma num quadro próprio (inteira, sem cortar, com botão de baixar)."""
-    updates = []
+    """As 3 capas prontas (imagem inteira, com botão de baixar) e, embaixo de cada uma, o texto dela."""
+    images, texts = [], []
     for number in range(1, 4):
         cover = covers[number - 1] if number <= len(covers) else None
-        label = f"Capa {number}" + (f" · {cover['why'][:60]}" if cover and cover.get("why") else "")
-        updates.append(gr.Image(value=cover["path"] if cover else None, label=label, visible=cover is not None))
-    return tuple(updates)
+        label = f"Capa {number}" + (f" · {cover['why'][:70]}" if cover and cover.get("why") else "")
+        images.append(gr.Image(value=cover["path"] if cover else None, label=label, visible=cover is not None))
+        texts.append(gr.Textbox(value=cover["text"] if cover else "", visible=cover is not None))
+    return (*images, *texts)
 
 
 def _nav(step: int, plan: list[dict] | None = None, index: int = 0):
@@ -375,21 +376,21 @@ def build_app():
                     with gr.Column(scale=3, min_width=300):
                         publication_box = gr.Textbox(label="📣 Título e descrição para publicar", lines=14,
                                                      buttons=["copy"], interactive=False)
-                gr.Markdown("🖼️ Capas — use a setinha de cada uma para baixar", elem_classes="pj-step")
+                gr.Markdown("🖼️ Capas prontas — escolha a sua e baixe pela setinha da imagem", elem_classes="pj-step")
+                cover_images, cover_texts = [], []
                 with gr.Row(elem_id="pj-covers"):
-                    covers_gallery = [gr.Image(label=f"Capa {n}", height=320, interactive=False, visible=False,
-                                               min_width=200) for n in range(1, 4)]
-                with gr.Row():
-                    cover_number = gr.Radio([1, 2, 3], value=1, label="Capa", scale=1, min_width=160)
-                    cover_text = gr.Textbox(label="Texto da capa", placeholder="Ex.: ELE NÃO ACREDITOU", scale=3)
-                    cover_button = gr.Button("Trocar texto (sem IA)", scale=1, min_width=160)
-                gr.Markdown("🎞️ Cenas mais fortes do vídeo — clique numa para usar na capa marcada acima",
-                            elem_classes="pj-step")
-                scenes_gallery = gr.Gallery(show_label=False, columns=6, height=230, object_fit="cover",
-                                            allow_preview=False, interactive=False, elem_id="pj-scenes")
-                with gr.Row():
-                    ai_cover_button = gr.Button("🤖 Deixar a IA escolher as 3 melhores cenas e textos", min_width=260)
-                    cover_info = gr.Markdown("_A IA olha uma imagem só com estas cenas. O uso real aparece aqui._",
+                    for number in range(1, 4):
+                        with gr.Column(min_width=220):
+                            cover_images.append(gr.Image(label=f"Capa {number}", height=340, interactive=False,
+                                                         visible=False))
+                            cover_texts.append(gr.Textbox(show_label=False, placeholder="Texto da capa",
+                                                          submit_btn="Aplicar", visible=False))
+                with gr.Accordion("🎞️ Quer outra foto? Escolha uma das cenas mais fortes do vídeo", open=False):
+                    scene_target = gr.Radio([("Capa 1", 1), ("Capa 2", 2), ("Capa 3", 3)], value=1,
+                                            label="Trocar a foto da")
+                    scenes_gallery = gr.Gallery(show_label=False, columns=6, height=230, object_fit="cover",
+                                                allow_preview=False, interactive=False, elem_id="pj-scenes")
+                    cover_info = gr.Markdown("_Clique numa cena. O texto da capa continua o mesmo. Sem IA._",
                                              elem_classes="pj-hint")
                 scenes_state = gr.State([])
 
@@ -513,10 +514,10 @@ def build_app():
 
         def export(output, plan, aspect_value, only_ids, publication, shorts, progress):
             if not output or not plan:
-                return None, "Analise uma live primeiro.", *[gr.skip()] * 7
+                return None, "Analise uma live primeiro.", *[gr.skip()] * 9
             items = [plan[i] for i in sorted(only_ids) if i < len(plan)]
             if not items:
-                return (None, "⚠️ Todos os trechos foram tirados. Mantenha pelo menos um.", *[gr.skip()] * 7)
+                return (None, "⚠️ Todos os trechos foram tirados. Mantenha pelo menos um.", *[gr.skip()] * 9)
             progress(0.05, desc=f"Preparando {len(items)} trechos...")
             try:
                 notes: list[str] = []
@@ -528,30 +529,22 @@ def build_app():
                 text = write_publication(Path(output), publication, items, aspect_value)
                 progress(0.95, desc="Montando as capas...")
                 covers = make_publication_covers(Path(output), publication, items, aspect_value)
-                first = covers[0]["text"] if covers else ""
                 progress(0.97, desc="Separando as cenas mais fortes...")
                 try:
                     scenes = scene_candidates(video_path(Path(output)), items, Path(output) / "capas" / "cenas")
                 except Exception:
                     scenes = []
                 warning = "".join(f"\n\n⚠️ {note}" for note in notes)
-                return (str(path), f"✅ Salvo em `{path}`{warning}", text, *_gallery(covers), first,
+                return (str(path), f"✅ Salvo em `{path}`{warning}", text, *_gallery(covers),
                         [s["path"] for s in scenes], scenes)
             except Exception as error:
-                return None, f"⚠️ Erro: {error}", *[gr.skip()] * 7
+                return None, f"⚠️ Erro: {error}", *[gr.skip()] * 9
 
         def change_cover_text(output, number, text):
             try:
                 return _gallery(retext_cover(Path(output) / "capas", int(number), text or ""))
             except Exception:
-                return (gr.skip(),) * 3
-
-        def pick_cover(output, number):
-            try:
-                covers = json.loads((Path(output) / "capas" / "capas.json").read_text(encoding="utf-8"))["covers"]
-                return covers[int(number) - 1]["text"]
-            except Exception:
-                return gr.skip()
+                return (gr.skip(),) * 6
 
         def save_my_style(text):
             save_style_text(text or "")
@@ -650,44 +643,24 @@ def build_app():
         short_preview_button.click(show_short_preview, [output_state, plan_state, video, video_text, *short_inputs],
                                    [short_preview, short_info])
 
-        export_outputs = [result, result_path, publication_box, *covers_gallery, cover_text, scenes_gallery, scenes_state]
+        cover_outputs = [*cover_images, *cover_texts]
+        export_outputs = [result, result_path, publication_box, *cover_outputs, scenes_gallery, scenes_state]
 
         def choose_scene(output, number, scenes, event: gr.SelectData):
             try:
                 scene = scenes[event.index]
                 covers = use_scene(Path(output) / "capas", int(number), video_path(Path(output)), scene["time"])
-                return (*_gallery(covers), f"Capa {number} agora usa a cena de {_time_text(scene['time'])}.")
+                return (*_gallery(covers), f"✅ A capa {number} agora usa a cena de {_time_text(scene['time'])}.")
             except Exception as error:
-                return (*[gr.skip()] * 3, f"⚠️ {error}")
+                return (*[gr.skip()] * 6, f"⚠️ {error}")
 
-        def ai_covers(output, scenes, publication, plan, aspect_value, progress=gr.Progress()):
-            if not output or not scenes:
-                return (*[gr.skip()] * 4, "⚠️ Gere o vídeo primeiro.")
-            from ..ai.covers_ai import pick_covers
-            from ..export.covers import make_covers
-            try:
-                progress(0.2, desc="A IA está olhando as cenas...")
-                folder = Path(output) / "capas"
-                sheet = scenes_sheet(scenes, folder / "cenas" / "folha.jpg")
-                titles = (publication or {}).get("titles") or []
-                ideas, usage = pick_covers(sheet, scenes, titles[0] if titles else "")
-                if not ideas:
-                    return (*[gr.skip()] * 4, "⚠️ A IA não devolveu capas. Tente de novo.")
-                progress(0.8, desc="Montando as capas...")
-                covers = make_covers(video_path(Path(output)), ideas, plan, folder, aspect_value)
-                return (*_gallery(covers), covers[0]["text"], f"✅ Capas escolhidas pela IA. <small>{usage}</small>")
-            except Exception as error:
-                return (*[gr.skip()] * 4, f"⚠️ {error}")
-
-        scenes_gallery.select(choose_scene, [output_state, cover_number, scenes_state], [*covers_gallery, cover_info])
-        ai_cover_button.click(ai_covers, [output_state, scenes_state, publication_state, plan_state, aspect],
-                              [*covers_gallery, cover_text, cover_info])
+        scenes_gallery.select(choose_scene, [output_state, scene_target, scenes_state], [*cover_outputs, cover_info])
+        for number, box in enumerate(cover_texts, 1):
+            box.submit(change_cover_text, [output_state, gr.State(number), box], cover_outputs)
         accept_all.click(None, js=SCROLL_GERAR).then(
             export_liked, [output_state, plan_state, aspect, accepted_state, publication_state, *short_inputs],
             export_outputs)
         export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state, publication_state,
                                            *short_inputs], export_outputs)
-        cover_number.change(pick_cover, [output_state, cover_number], cover_text)
-        cover_button.click(change_cover_text, [output_state, cover_number, cover_text], covers_gallery)
 
     return app
