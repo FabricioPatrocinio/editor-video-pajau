@@ -14,6 +14,17 @@ from ..pipeline import (analysis_mode, export_plan, find_candidates, find_segmen
 
 STEP = 5.0
 
+# Barra de passos flutuante, sempre visível no rodapé da tela.
+CSS = """
+#pajau-nav { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 1000;
+             width: min(820px, calc(100vw - 32px)); padding: 10px; border-radius: 14px;
+             background: var(--block-background-fill); border: 1px solid var(--border-color-primary);
+             box-shadow: 0 8px 30px rgba(0, 0, 0, .45); }
+.gradio-container { padding-bottom: 110px !important; }
+"""
+SCROLL_TOPO = "() => window.scrollTo({top: 0, behavior: 'smooth'})"
+SCROLL_GERAR = "() => document.getElementById('pajau-gerar')?.scrollIntoView({behavior: 'smooth', block: 'center'})"
+
 
 def windows_para_wsl(caminho: str) -> str:
     """No WSL, aceita o caminho do Windows colado (C:\\Users\\...) e troca por /mnt/c/Users/..."""
@@ -77,6 +88,17 @@ def _overview(plan: list[dict], accepted: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
+def _nav(step: int, plan: list[dict] | None = None, index: int = 0):
+    """Destaca o passo atual na barra e mostra a tela certa (1 = pedido, 2 = revisar, 3 = gerar)."""
+    total = len(plan or [])
+    review = f"② Revisar ({min(index, total)}/{total})" if total else "② Revisar"
+    variant = lambda number: "primary" if step == number else "secondary"
+    return (gr.Button(variant=variant(1)),
+            gr.Button(value=review, variant=variant(2), interactive=bool(total)),
+            gr.Button(variant=variant(3), interactive=bool(total)),
+            gr.Column(visible=step == 1), gr.Column(visible=step != 1))
+
+
 def _view(output: str, plan: list[dict], transcripts: dict, index: int):
     """Título, prévia em vídeo, motivo, transcrição e transição do trecho atual."""
     if not plan or index >= len(plan):
@@ -99,13 +121,19 @@ def build_app():
         gr.Markdown("# Pajau\nDiga que vídeo você quer. A IA escolhe os trechos, você confere e gera.")
         gr.Markdown(_status_text())
 
+        with gr.Row(elem_id="pajau-nav"):
+            go_request = gr.Button("① Pedido", variant="primary")
+            go_review = gr.Button("② Revisar", interactive=False)
+            go_export = gr.Button("③ Gerar vídeo", interactive=False)
+        status = gr.Markdown("")
+
         output_state = gr.State("")
         plan_state = gr.State([])
         transcripts_state = gr.State({})
         index_state = gr.State(0)
         accepted_state = gr.State([])
 
-        with gr.Tab("1. Pedido"):
+        with gr.Column() as request_screen:
             with gr.Row():
                 video = gr.File(label="Live", file_types=[".mp4", ".mkv", ".mov", ".webm"])
                 video_text = gr.Textbox(label="ou cole o caminho do arquivo (melhor para lives grandes)",
@@ -159,9 +187,9 @@ def build_app():
             with gr.Row():
                 analyze_button = gr.Button("Analisar com IA", variant="primary")
                 replan_button = gr.Button("Refazer só o plano (mais barato)")
-            status = gr.Markdown("")
+            gr.Markdown("_Quando a análise terminar, a revisão abre sozinha._")
 
-        with gr.Tab("2. Revisar e gerar"):
+        with gr.Column(visible=False) as review_screen:
             overview = gr.Markdown("Ainda não existe um plano.")
             accept_all = gr.Button("Aceitar tudo e gerar o vídeo", variant="primary")
             gr.Markdown("---")
@@ -178,7 +206,7 @@ def build_app():
             with gr.Row():
                 reject = gr.Button("Não quero", size="lg")
                 approve = gr.Button("Gostei", variant="primary", size="lg")
-            export_button = gr.Button("Gerar vídeo só com os que gostei", variant="primary")
+            export_button = gr.Button("Gerar vídeo só com os que gostei", variant="primary", elem_id="pajau-gerar")
             result = gr.Video(label="Vídeo final")
             result_path = gr.Markdown("")
             publication_box = gr.Textbox(label="📣 Título e descrição para publicar", lines=12,
@@ -200,7 +228,7 @@ def build_app():
             warning = muted_warning(Path(output))
             message = (
                 (f"**{warning}**\n\n" if warning else "") +
-                f"✅ {len(candidates)} candidatos analisados, {len(data)} trechos escolhidos. Veja a aba **2. Revisar e gerar**.\n\n"
+                f"✅ {len(candidates)} candidatos analisados, {len(data)} trechos escolhidos. Confira cada um e marque **Gostei** ou **Não quero**.\n\n"
                 f"{plan.summary}\n\n_{plan.usage}_"
             )
             text = publication_text(plan.publication, data, aspect_value)
@@ -292,8 +320,22 @@ def build_app():
             save_style_text(text or "")
             return f"Estilo salvo. A IA já aprendeu com {len(load_style()['aprendizado'])} decisões suas."
 
-        analyze_button.click(run_analysis, [video, video_text, ignore, *request_inputs], plan_outputs)
-        replan_button.click(replan, [output_state, *request_inputs], plan_outputs)
+        nav_outputs = [go_request, go_review, go_export, request_screen, review_screen]
+        after_plan = lambda plan, index: _nav(2 if plan else 1, plan, index)
+
+        analyze_button.click(run_analysis, [video, video_text, ignore, *request_inputs], plan_outputs).then(
+            after_plan, [plan_state, index_state], nav_outputs)
+        replan_button.click(replan, [output_state, *request_inputs], plan_outputs).then(
+            after_plan, [plan_state, index_state], nav_outputs)
+        # Sobe a página para a pessoa ver o progresso e o resumo, que ficam no topo.
+        analyze_button.click(None, js=SCROLL_TOPO)
+        replan_button.click(None, js=SCROLL_TOPO)
+        go_request.click(lambda plan, index: _nav(1, plan, index), [plan_state, index_state], nav_outputs).then(
+            None, js=SCROLL_TOPO)
+        go_review.click(lambda plan, index: _nav(2, plan, index), [plan_state, index_state], nav_outputs).then(
+            None, js=SCROLL_TOPO)
+        go_export.click(lambda plan, index: _nav(3, plan, index), [plan_state, index_state], nav_outputs).then(
+            None, js=SCROLL_GERAR)
         save_style.click(save_my_style, my_style, style_info)
 
         for button, field, delta in (
@@ -306,7 +348,8 @@ def build_app():
 
         for button, liked in ((approve, True), (reject, False)):
             button.click(decide, [output_state, plan_state, transcripts_state, index_state, accepted_state, gr.State(liked)],
-                         [*view_outputs, index_state, accepted_state, overview])
+                         [*view_outputs, index_state, accepted_state, overview]).then(
+                lambda plan, index: _nav(3 if index >= len(plan) else 2, plan, index), [plan_state, index_state], nav_outputs)
 
         def export_all(output, plan, aspect_value, publication, progress=gr.Progress()):
             return export(output, plan, aspect_value, None, publication, progress)

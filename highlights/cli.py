@@ -255,9 +255,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def launch_ui(host: str, port: int) -> int:
-    from .ui.gradio_app import build_app
+    from .ui.gradio_app import CSS, build_app
     app = build_app()
-    app.launch(server_name=host, server_port=port, inbrowser=True)
+    app.launch(server_name=host, server_port=port, inbrowser=True, css=CSS)
     return 0
 
 
