@@ -202,7 +202,78 @@ class OpenAIProvider:
         return _decode_json("".join(texts)), usage
 
 
+def write_request_file(system: str, parts: list[Part], path: Path) -> Path:
+    """Pedido completo em Markdown, com os caminhos das imagens. Usado pelo Claude Code."""
+    lines = [system, "", "## Dados", ""]
+    for part in parts:
+        if isinstance(part, TextPart):
+            lines += [part.text, ""]
+        else:
+            lines += [f"[imagem: {part.path.resolve()}]", ""]
+    lines += ["## Resposta", "", JSON_INSTRUCTION]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+class ClaudeCodeProvider:
+    """Usa o Claude Code (`claude -p`) logado na sua conta: o uso sai dos limites da assinatura."""
+
+    def __init__(self, settings: AISettings):
+        self.settings = settings
+
+    def generate_plan(self, system: str, parts: list[Part]) -> tuple[dict, Usage]:
+        import shutil
+        import subprocess
+        import tempfile
+
+        images = [part.path for part in parts if isinstance(part, ImagePart)]
+        folder = images[0].resolve().parent if images else Path(tempfile.mkdtemp(prefix="pajau-"))
+        request = write_request_file(system, parts, folder / "ia-pedido.md")
+
+        command = [
+            shutil.which("claude") or "claude", "-p",
+            f"Leia o arquivo {request} e abra cada imagem listada nele com a ferramenta Read. "
+            "Depois responda exatamente o que o arquivo pede, no formato JSON do schema.",
+            "--output-format", "json",
+            "--json-schema", json.dumps(PLAN_SCHEMA),
+            "--allowedTools", "Read",
+            "--add-dir", str(folder),
+        ]
+        if self.settings.model:
+            command += ["--model", self.settings.model]
+        # Sem ANTHROPIC_API_KEY no ambiente, o Claude Code usa o login da assinatura.
+        env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+        try:
+            run = subprocess.run(command, cwd=folder, env=env, capture_output=True, text=True, timeout=900)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("O Claude Code demorou mais de 15 minutos. Tente de novo.") from error
+
+        try:
+            data = json.loads(run.stdout)
+        except ValueError as error:
+            detail = (run.stderr or run.stdout).strip()[:400]
+            raise RuntimeError(f"O Claude Code não respondeu como esperado: {detail}") from error
+        if data.get("is_error"):
+            message = str(data.get("result", ""))[:400]
+            if "limit" in message.lower():
+                raise RuntimeError(f"Limite da assinatura atingido: {message}")
+            raise RuntimeError(f"Erro do Claude Code: {message}")
+
+        result = data.get("structured_output") or _decode_json(str(data.get("result", "")))
+        raw = data.get("usage", {})
+        usage = Usage(
+            input_tokens=raw.get("input_tokens", 0),
+            output_tokens=raw.get("output_tokens", 0),
+            cache_read=raw.get("cache_read_input_tokens", 0),
+            cache_write=raw.get("cache_creation_input_tokens", 0),
+            subscription=True,
+        )
+        return result, usage
+
+
 def get_provider(settings: AISettings) -> AIProvider:
+    if settings.provider == "claude-code":
+        return ClaudeCodeProvider(settings)
     if settings.provider == "claude":
         return ClaudeProvider(settings)
     return OpenAIProvider(settings)

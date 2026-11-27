@@ -10,6 +10,7 @@ from .config import AISettings, check_ai_ready, load_ai_settings
 from .prompt import SYSTEM_PROMPT
 from .providers import AIProvider, ImagePart, Part, TextPart, get_provider
 from .style import style_prompt
+from ..export.sheets import build_sheets
 from ..export.transitions import TRANSITIONS
 
 
@@ -80,12 +81,12 @@ def _request_parts(
     }
     parts: list[Part] = [TextPart(json.dumps(fixed, ensure_ascii=False, indent=1))]
 
-    for candidate in candidates[:max_image_candidates]:
-        images = [Path(path) for path in candidate.previews[:3] if Path(path).exists()]
-        if not images:
-            continue
-        parts.append(TextPart(f"Imagens de {candidate.id} (início, meio e fim de {_clock(candidate.start)}):"))
-        parts.extend(ImagePart(path) for path in images)
+    with_images = sorted(candidates[:max_image_candidates], key=lambda item: item.start)
+    first_preview = next((Path(p) for c in with_images for p in c.previews if Path(p).exists()), None)
+    if first_preview is not None:
+        for description, sheet in build_sheets(with_images, first_preview.parent.parent / "folhas"):
+            parts.append(TextPart(description))
+            parts.append(ImagePart(sheet))
     parts.append(TextPart("Fim dos candidatos.", cache=True))
 
     request = {
@@ -142,6 +143,23 @@ def _validate(result: dict, candidates: list[Candidate], target_duration: float)
     return plan
 
 
+def prepare_request(
+    candidates: Iterable[Candidate], briefing: str, target_duration: float, avoid: str, settings: AISettings
+) -> tuple[list[Candidate], list[Part]]:
+    ranked = sorted(candidates, key=lambda item: item.score, reverse=True)[: settings.max_candidates]
+    return ranked, _request_parts(ranked, briefing, avoid, target_duration, settings.max_image_candidates)
+
+
+def plan_from_result(result: dict, ranked: list[Candidate], target_duration: float, provider: str, usage: str) -> ReviewPlan:
+    return ReviewPlan(
+        items=_validate(result, ranked, target_duration),
+        rejected=[dict(item) for item in result.get("rejected", []) if isinstance(item, dict)],
+        summary=str(result.get("summary", "")),
+        provider=provider,
+        usage=usage,
+    )
+
+
 def build_review_plan(
     candidates: Iterable[Candidate],
     briefing: str,
@@ -156,19 +174,11 @@ def build_review_plan(
         raise RuntimeError(problem)
     usage_ledger.ensure_budget(settings.daily_limit_usd)
 
-    ranked = sorted(candidates, key=lambda item: item.score, reverse=True)[: settings.max_candidates]
+    ranked, parts = prepare_request(candidates, briefing, target_duration, avoid, settings)
     if not ranked:
         return ReviewPlan([], [], "Nenhum candidato para analisar.", settings.label, "")
 
-    parts = _request_parts(ranked, briefing, avoid, target_duration, settings.max_image_candidates)
     provider = provider or get_provider(settings)
     result, usage = provider.generate_plan(SYSTEM_PROMPT, parts)
     usage_ledger.record(usage)
-
-    return ReviewPlan(
-        items=_validate(result, ranked, target_duration),
-        rejected=[dict(item) for item in result.get("rejected", []) if isinstance(item, dict)],
-        summary=str(result.get("summary", "")),
-        provider=settings.label,
-        usage=usage.text,
-    )
+    return plan_from_result(result, ranked, target_duration, settings.label, usage.text)

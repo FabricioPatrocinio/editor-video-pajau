@@ -30,13 +30,18 @@ class Usage:
     cost_usd: float | None = None
     cache_read: int = 0
     cache_write: int = 0
+    subscription: bool = False
 
     @property
     def text(self) -> str:
-        cost = f"~US$ {self.cost_usd:.3f}" if self.cost_usd is not None else "custo não estimado"
+        if self.subscription:
+            cost = "pela assinatura, sem custo extra"
+        else:
+            cost = f"~US$ {self.cost_usd:.3f}" if self.cost_usd is not None else "custo não estimado"
+        number = lambda value: f"{value:,}".replace(",", ".")
         total_in = self.input_tokens + self.cache_read + self.cache_write
-        cached = f", {self.cache_read:,} reaproveitados do cache" if self.cache_read else ""
-        return f"{total_in:,} tokens de entrada{cached}, {self.output_tokens:,} de saída ({cost})".replace(",", ".")
+        cached = f" ({number(self.cache_read)} do cache)" if self.cache_read else ""
+        return f"{number(total_in)} tokens de entrada{cached} e {number(self.output_tokens)} de saída, {cost}"
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0) -> float | None:

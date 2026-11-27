@@ -145,6 +145,56 @@ def auto(args: argparse.Namespace) -> int:
     return 0
 
 
+def preparar(args: argparse.Namespace) -> int:
+    """Análise local + pedido pronto para o Claude Code ler (modo /cortar)."""
+    from dataclasses import asdict
+
+    from .ai.config import load_ai_settings
+    from .ai.plan import prepare_request
+    from .ai.prompt import SYSTEM_PROMPT
+    from .ai.providers import write_request_file
+    from .pipeline import find_candidates
+
+    target = args.minutes * 60
+    output, candidates = find_candidates(
+        args.input, target, [list(item) for item in args.ignore or []],
+        progress=lambda fraction, text: print(f"    {text}"),
+    )
+    if not candidates:
+        print("Nenhum candidato encontrado.")
+        return 1
+    _, parts = prepare_request(candidates, args.briefing, target, args.avoid, load_ai_settings())
+    request = write_request_file(SYSTEM_PROMPT, parts, output / "ia-pedido.md")
+    (output / "ia-pedido.json").write_text(json.dumps(
+        {"target_duration": target, "briefing": args.briefing, "ignorar": args.avoid}, ensure_ascii=False
+    ), encoding="utf-8")
+    print(f"PASTA={output}")
+    print(f"PEDIDO={request}")
+    print(f"RESPOSTA={output / 'ia-plan.json'}")
+    return 0
+
+
+def gerar(args: argparse.Namespace) -> int:
+    """Exporta o vídeo a partir do ia-plan.json de uma pasta."""
+    from dataclasses import asdict
+
+    from .ai.plan import plan_from_result
+    from .pipeline import export_plan, load_candidates
+
+    folder = Path(args.pasta)
+    meta_path = folder / "ia-pedido.json"
+    target = json.loads(meta_path.read_text(encoding="utf-8"))["target_duration"] if meta_path.exists() else 3600.0
+    result = json.loads((folder / "ia-plan.json").read_text(encoding="utf-8"))
+    plan = plan_from_result(result, load_candidates(folder), target, "Claude Code", "")
+    if not plan.items:
+        print("O ia-plan.json não tem trechos válidos.")
+        return 1
+    for index, item in enumerate(plan.items, 1):
+        print(f"  {index:02d}. {item.start:8.1f}s - {item.end:8.1f}s  [{item.kind}] ({item.transition}) {item.reason}")
+    print(f"Vídeo final: {export_plan(folder, plan.items, args.aspect)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pajau", description="Gerador open-source de cortes de lives")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -174,6 +224,19 @@ def build_parser() -> argparse.ArgumentParser:
     auto_parser.add_argument("--ignore", action="append", nargs=2, type=float, metavar=("START", "END"), help="Intervalo a ignorar em segundos")
     auto_parser.add_argument("--plan-only", action="store_true", help="Só gerar o plano da IA, sem exportar o vídeo")
     auto_parser.set_defaults(func=auto)
+
+    prep_parser = sub.add_parser("preparar", help="Análise local + pedido para o Claude Code (modo /cortar)")
+    prep_parser.add_argument("--input", required=True)
+    prep_parser.add_argument("--briefing", default="")
+    prep_parser.add_argument("--avoid", default="")
+    prep_parser.add_argument("--minutes", type=float, default=10)
+    prep_parser.add_argument("--ignore", action="append", nargs=2, type=float, metavar=("START", "END"))
+    prep_parser.set_defaults(func=preparar)
+
+    gen_parser = sub.add_parser("gerar", help="Gera o vídeo a partir do ia-plan.json de uma pasta")
+    gen_parser.add_argument("--pasta", required=True)
+    gen_parser.add_argument("--aspect", choices=["16:9", "9:16"], default="16:9")
+    gen_parser.set_defaults(func=gerar)
 
     ui_parser = sub.add_parser("ui", help="Abrir interface Gradio")
     ui_parser.add_argument("--host", default="127.0.0.1")

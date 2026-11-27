@@ -11,7 +11,7 @@ from highlights.ai.usage import Usage
 
 @pytest.fixture(autouse=True)
 def isolated_env(monkeypatch, tmp_path):
-    for name in ("PAJAU_USE_CLAUDE", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL",
+    for name in ("PAJAU_USE_CLAUDE", "PAJAU_CLAUDE_VIA", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL",
                  "PAJAU_AI_DAILY_LIMIT_USD", "PAJAU_AI_MAX_CANDIDATES", "PAJAU_AI_MAX_IMAGE_CANDIDATES"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(usage, "LEDGER", tmp_path / "ai-usage.json")
@@ -38,6 +38,8 @@ def _candidates():
 
 
 def test_flag_selects_provider(monkeypatch):
+    assert load_ai_settings().provider == "claude-code"  # padrão: assinatura
+    monkeypatch.setenv("PAJAU_CLAUDE_VIA", "api")
     assert load_ai_settings().provider == "claude"
     assert load_ai_settings().model == "claude-opus-5-5"
     monkeypatch.setenv("PAJAU_USE_CLAUDE", "false")
@@ -47,6 +49,7 @@ def test_flag_selects_provider(monkeypatch):
 
 
 def test_missing_key_names_the_right_variable(monkeypatch):
+    monkeypatch.setenv("PAJAU_CLAUDE_VIA", "api")
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         build_review_plan(_candidates(), "Pegar vitória contra boss", 600.0)
     monkeypatch.setenv("PAJAU_USE_CLAUDE", "false")
@@ -76,8 +79,10 @@ def test_plan_is_clamped_ordered_and_respects_duration():
 
 
 def test_request_puts_fixed_part_first_and_briefing_last(tmp_path):
-    image = tmp_path / "frame.jpg"
-    image.write_bytes(b"\xff\xd8\xff")
+    from PIL import Image
+    (tmp_path / "previews").mkdir()
+    image = tmp_path / "previews" / "frame.jpg"
+    Image.new("RGB", (480, 270), "red").save(image)
     candidates = [Candidate("evento-01", 10.0, 80.0, 0.9, [str(image)], transcript="consegui!")]
     provider = FakeProvider({"summary": "", "approved": [], "rejected": []})
     style.save_style_text("Canal de soulslike")
@@ -115,3 +120,12 @@ def test_daily_limit_blocks_after_spending(monkeypatch):
     build_review_plan(_candidates(), "x", 600.0, provider=provider)
     with pytest.raises(RuntimeError, match="Limite diário"):
         build_review_plan(_candidates(), "x", 600.0, provider=provider)
+
+
+def test_request_file_lists_images_for_claude_code(tmp_path):
+    from highlights.ai.providers import write_request_file
+    image = tmp_path / "folha.jpg"
+    image.write_bytes(b"x")
+    path = write_request_file("SISTEMA", [TextPart("dados"), ImagePart(image)], tmp_path / "pedido.md")
+    text = path.read_text(encoding="utf-8")
+    assert "SISTEMA" in text and "dados" in text and f"[imagem: {image.resolve()}]" in text

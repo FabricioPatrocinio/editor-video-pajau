@@ -4,10 +4,15 @@ A escolha do provedor é feita por uma única flag:
 
     PAJAU_USE_CLAUDE=true   -> Claude (Anthropic)
     PAJAU_USE_CLAUDE=false  -> OpenAI
+
+Com Claude, PAJAU_CLAUDE_VIA escolhe como pagar:
+    assinatura -> usa o Claude Code instalado e logado na sua conta (sem créditos de API)
+    api        -> usa ANTHROPIC_API_KEY (créditos pré-pagos)
 """
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 
 TRUE_VALUES = {"1", "true", "sim", "yes", "on"}
@@ -49,6 +54,8 @@ class AISettings:
 
     @property
     def label(self) -> str:
+        if self.provider == "claude-code":
+            return "Claude pela assinatura (Claude Code)"
         return f"{'Claude' if self.provider == 'claude' else 'OpenAI'} ({self.model})"
 
     @property
@@ -58,7 +65,12 @@ class AISettings:
 
 def load_ai_settings() -> AISettings:
     use_claude = env_flag("PAJAU_USE_CLAUDE", True)
-    if use_claude:
+    via = os.getenv("PAJAU_CLAUDE_VIA", "assinatura").strip().lower()
+    if use_claude and via != "api":
+        provider = "claude-code"
+        model = os.getenv("PAJAU_CLAUDE_CODE_MODEL", "").strip()
+        api_key = ""
+    elif use_claude:
         provider = "claude"
         model = os.getenv("ANTHROPIC_MODEL", "").strip() or DEFAULT_CLAUDE_MODEL
         api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
@@ -81,6 +93,10 @@ def load_ai_settings() -> AISettings:
 def check_ai_ready(settings: AISettings | None = None) -> str | None:
     """Retorna uma mensagem de erro amigável, ou None se a IA estiver pronta."""
     settings = settings or load_ai_settings()
+    if settings.provider == "claude-code":
+        if not shutil.which("claude"):
+            return "PAJAU_CLAUDE_VIA=assinatura precisa do Claude Code instalado e logado (comando `claude`)."
+        return None
     if not settings.api_key:
         flag = "true" if settings.provider == "claude" else "false"
         return (

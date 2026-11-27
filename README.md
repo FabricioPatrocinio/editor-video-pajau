@@ -9,7 +9,7 @@ sudo apt install ffmpeg python3-venv
 make instalar
 ```
 
-Coloque sua chave no `.env` (`ANTHROPIC_API_KEY=`). Crie a chave em https://platform.claude.com/settings/keys
+Por padrão a IA usa **a sua assinatura do Claude**, pelo Claude Code (`claude` instalado e logado). Não precisa de chave nem de créditos.
 
 ## Usar
 
@@ -18,6 +18,8 @@ make ui                                                  # interface no navegado
 make cortar VIDEO=live.mp4 PEDIDO="vitórias contra boss"  # direto para o vídeo final
 make plano  VIDEO=live.mp4 PEDIDO="..."                   # só vê o plano, não gera vídeo
 ```
+
+Ou converse comigo no Claude Code: `/cortar /caminho/live.mp4 10 vitórias contra boss`
 
 Na interface, salve uma vez o **Meu estilo**. Depois, cada pedido pode ser curto. Os seus "Gostei" e "Não quero" ensinam a IA.
 
@@ -29,7 +31,9 @@ A IA **não** assiste à live. O seu computador faz o trabalho pesado:
 2. Cada candidato vira 3 fotos pequenas (480px) e, opcionalmente, uma transcrição feita no seu PC.
 3. Só isso vai para a IA: a lista, o texto e as fotos. Ela devolve quais trechos usar, em que ordem e com qual transição.
 
-**Custo:** cerca de 25 mil tokens por análise, sendo metade das fotos. Com o Claude Opus, isso dá por volta de US$ 0,20–0,30. O "Refazer só o plano" reaproveita o que já foi enviado e sai bem mais barato. Mandar o vídeo inteiro custaria centenas de vezes mais.
+As fotos vão juntas em "folhas de contato" (5 trechos por imagem), que gastam menos.
+
+**Custo:** pela assinatura, não tem custo extra; só consome o limite do seu plano. Pela API, cada análise sai por uns US$ 0,20 com o Opus. Mandar o vídeo inteiro custaria centenas de vezes mais.
 
 ## Configurar
 
@@ -38,6 +42,6 @@ Tudo fica no `.env`; os valores possíveis estão em `.env.example`. O principal
 | Variável | Para quê |
 |---|---|
 | `PAJAU_USE_CLAUDE` | `true` = Claude, `false` = OpenAI |
-| `ANTHROPIC_MODEL` | `claude-opus-5-5` (padrão) ou `claude-sonnet-5-5` (metade do preço) |
+| `PAJAU_CLAUDE_VIA` | `assinatura` (padrão, sem custo extra) ou `api` (créditos) |
 | `PAJAU_TRANSCRIBE` | `true` transcreve as falas (melhora muito as escolhas) |
 | `PAJAU_AI_DAILY_LIMIT_USD` | trava de gasto por dia |
