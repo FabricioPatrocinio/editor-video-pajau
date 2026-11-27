@@ -25,19 +25,20 @@ def export_cuts(video: str | Path, cuts: list[Cut], output_dir: str | Path, aspe
         m = int((cut.start % 3600) // 60)
         s = int(cut.start % 60)
         path = output_dir / f"clip_{index:02d}_{h:02d}h{m:02d}m{s:02d}s.mp4"
-        vf = ["scale=-2:720"]
+        # Mantém a resolução da live (até 1080p): nunca piora um vídeo que já é bom.
+        vf = ["scale=-2:'min(ih,1080)'"]
         if aspect == "9:16":
             vf = [
-                "split=2[in][bg];[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:10[blur];",
-                "[in]scale=720:1280:force_original_aspect_ratio=decrease[fg];[blur][fg]overlay=(W-w)/2:(H-h)/2",
+                "split=2[in][bg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[blur];",
+                "[in]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[blur][fg]overlay=(W-w)/2:(H-h)/2",
             ]
-        filter_arg = ";".join(vf) if aspect == "16:9" else ";".join(vf)
+        filter_arg = "".join(vf)
 
         command = [ffmpeg, "-y", "-v", "error"]
         if mode == "fast":
             command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-map", "0:v:0", "-map", "0:a?", "-c", "copy"]
         else:
-            command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-vf", filter_arg, "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
+            command += ["-ss", str(cut.start), "-i", str(video), "-t", str(cut.duration), "-vf", filter_arg, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"]
         command.append(str(path))
         subprocess.run(command, check=True)
         paths.append(path)
