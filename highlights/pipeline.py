@@ -126,8 +126,12 @@ def find_segments_with_map(
     target_duration: float,
     ignore_intervals: list[list[float]] | None = None,
     progress: Progress = _no_progress,
+    reuse_map: bool = True,
 ) -> tuple[Path, list[Candidate], str]:
-    """Etapa 1 (mapa da live) + preparação da etapa 2 (zoom e fala nos trechos escolhidos)."""
+    """Etapa 1 (mapa da live) + preparação da etapa 2 (zoom e fala nos trechos escolhidos).
+
+    Se a live já foi mapeada (mapa.json), a IA escolhe pelo índice em texto, sem olhar as fotos de novo.
+    Se o índice não tiver o que foi pedido, olha a live inteira como da primeira vez."""
     from .ai.plan import build_live_map
     from .analysis.audio import extract_mono_audio
     from .analysis.frames import sample_frames
@@ -153,14 +157,27 @@ def find_segments_with_map(
     muted = [tuple(item) for item in json.loads(muted_file.read_text(encoding="utf-8"))]
 
     interval = float(os.getenv("PAJAU_MAPA_SEGUNDOS", "20") or 20)
-    progress(0.05, "Tirando fotos da live inteira para o mapa...")
-    frames = sample_frames(path, output / "mapa", interval, fast=True)
-    for start, end in ignore_intervals or []:
-        frames = [(t, f) for t, f in frames if not start <= t <= end]
+    index_file = output / "mapa.json"
+    live_map = None
+    if reuse_map and index_file.exists():
+        from .ai.plan import build_map_from_index
+        progress(0.15, "Live já mapeada: a IA escolhe pelo índice, sem olhar as fotos de novo...")
+        index = json.loads(index_file.read_text(encoding="utf-8"))
+        live_map, usage_text = build_map_from_index(index, briefing, avoid, target_duration)
+        if any(raw.get("usar") for raw in live_map.get("segmentos", [])):
+            usage_text = f"pelo índice, sem fotos: {usage_text}"
+        else:
+            progress(0.15, "O índice não tinha isso. Olhando a live inteira de novo...")
+            live_map = None
 
-    progress(0.15, f"IA olhando o mapa da live ({len(frames)} fotos)...")
-    live_map, usage_text = build_live_map(frames, output / "mapa-folhas", briefing, avoid, target_duration)
-    (output / "mapa.json").write_text(json.dumps(live_map, ensure_ascii=False, indent=2), encoding="utf-8")
+    if live_map is None:
+        progress(0.05, "Tirando fotos da live inteira para o mapa...")
+        frames = sample_frames(path, output / "mapa", interval, fast=True)
+        for start, end in ignore_intervals or []:
+            frames = [(t, f) for t, f in frames if not start <= t <= end]
+        progress(0.15, f"IA olhando o mapa da live ({len(frames)} fotos)...")
+        live_map, usage_text = build_live_map(frames, output / "mapa-folhas", briefing, avoid, target_duration)
+        index_file.write_text(json.dumps(live_map, ensure_ascii=False, indent=2), encoding="utf-8")
 
     chosen = []
     for raw in live_map.get("segmentos", []):
@@ -168,6 +185,8 @@ def find_segments_with_map(
             continue
         start = max(0.0, float(raw["start"]) - interval)
         end = min(duration, float(raw["end"]) + interval)
+        if any(a <= start and end <= b for a, b in ignore_intervals or []):
+            continue  # o pedido mandou pular esse pedaço da live
         if end - start >= 5:
             chosen.append((start, end, str(raw.get("descricao", ""))))
     if not chosen:

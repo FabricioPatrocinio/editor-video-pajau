@@ -36,6 +36,10 @@ def test_envio_da_live_vai_para_o_disco(tmp_path, monkeypatch):
     monkeypatch.setattr(web, "LIVES_DIR", tmp_path / "lives")
     answer = TestClient(web.app).put("/enviar?nome=../x.mp4", content=b"video").json()
     assert answer["nome"] == "x.mp4" and (tmp_path / "lives" / "x.mp4").read_bytes() == b"video"
+    # Mandar a mesma live de novo (nome com outro símbolo) reaproveita o arquivo que já existe.
+    client = TestClient(web.app)
+    assert client.get("/enviar/existe", params={"nome": "x–.mp4", "tamanho": 5}).json()["nome"] == "x.mp4"
+    assert client.get("/enviar/existe", params={"nome": "x.mp4", "tamanho": 6}).json() == {}
 
 
 def test_conferir_liga_desliga_e_ajusta(project):
@@ -120,7 +124,20 @@ def test_fluxo_completo_pedido_conferir_gerar_pronto(tmp_path, monkeypatch):
 
     url = finish(client.post("/analisar", data={"caminho": str(video), "formato": "16:9", "duracao": "1",
                                                 "pedido": "tudo"}, follow_redirects=False))
-    assert url == "/conferir/live-teste" and "Gerar vídeo · 1 trecho" in client.get(url).text
-    url = finish(client.post("/gerar/live-teste", follow_redirects=False))
+    assert url == "/conferir/live-teste--01" and "Gerar vídeo · 1 trecho" in client.get(url).text
+    url = finish(client.post("/gerar/live-teste--01", follow_redirects=False))
     page = client.get(url)
-    assert url == "/pronto/live-teste" and "Baixar vídeo" in page.text and "capa-1.jpg" in page.text
+    assert url == "/pronto/live-teste--01" and "Baixar vídeo" in page.text and "capa-1.jpg" in page.text
+
+    # Segundo vídeo da mesma live: vira o corte 02, sem apagar o 01.
+    url = finish(client.post("/analisar", data={"caminho": str(video), "formato": "9:16", "duracao": "30",
+                                                "pedido": "outro boss"}, follow_redirects=False))
+    assert url == "/conferir/live-teste--02" and (folder / "cortes" / "01" / "resultado.json").exists()
+    home = client.get("/").text
+    assert "Novo vídeo desta live" in home and "outro boss" in home and "📱" in home
+    assert "♻️" in client.get("/?live=live-teste").text
+
+
+def test_nomes_de_corte_nao_saem_da_pasta(project):
+    for name in ["minha-live--../..", "minha-live--01/../../x", "..--01", "minha-live--abc"]:
+        assert TestClient(web.app).get(f"/conferir/{name}").status_code == 404

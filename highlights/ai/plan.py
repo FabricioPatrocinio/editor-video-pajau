@@ -211,6 +211,37 @@ def build_review_plan(
     return plan_from_result(result, ranked, target_duration, settings.label, usage.text)
 
 
+def build_map_from_index(
+    index: dict,
+    briefing: str,
+    avoid: str,
+    target_duration: float,
+    settings: AISettings | None = None,
+) -> tuple[dict, str]:
+    """Novo vídeo da mesma live: escolhe os trechos pelo índice em texto (sem imagens, poucos milhares de tokens)."""
+    from .prompt import INDEX_PROMPT
+    settings = settings or load_ai_settings()
+    problem = check_ai_ready(settings)
+    if problem:
+        raise RuntimeError(problem)
+    usage_ledger.ensure_budget(settings.daily_limit_usd)
+    entries = [{"start": s["start"], "end": s["end"], "descricao": s.get("descricao", "")}
+               for s in index.get("segmentos", [])]
+    parts: list[Part] = [TextPart("Índice da live:\n" + json.dumps(
+        {"resumo": index.get("resumo", ""), "trechos": entries}, ensure_ascii=False, indent=1))]
+    style = style_prompt()
+    if style:
+        parts.append(TextPart(style))
+    parts.append(TextPart("Novo pedido do criador:\n" + json.dumps({
+        "briefing": briefing.strip() or "Montar os melhores momentos da live.",
+        "o_que_ignorar": avoid.strip() or "loading, menus, pausas",
+        "duracao_alvo_segundos": round(target_duration),
+    }, ensure_ascii=False, indent=1)))
+    result, usage = get_provider(settings).generate_plan(INDEX_PROMPT, parts, MAP_SCHEMA, MAP_JSON_INSTRUCTION)
+    usage_ledger.record(usage)
+    return result, usage.text
+
+
 def build_live_map(
     frames: list[tuple[float, Path]],
     sheets_dir: Path,

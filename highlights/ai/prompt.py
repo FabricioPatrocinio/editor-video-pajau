@@ -163,6 +163,19 @@ Se algo bom ficou de fora só por causa do item 1, cite no resumo como "ficou de
   Use os números t= das fotos; não invente horários fora do mapa.
 - Se o pedido disser para manter algo inteiro (ex.: "a última luta inteira"), mantenha em um único trecho.
 - descricao: o que acontece, em poucas palavras (ex.: "boss Benkei, 3ª tentativa, termina em morte").
+- Liste também, com usar=false, os OUTROS momentos marcantes da live (outros bosses, mortes engraçadas,
+  conversas, áreas novas), mesmo fora do pedido: este mapa vira o índice da live para os próximos vídeos.
+"""
+
+# Novo vídeo da mesma live: a IA escolhe pelo índice em texto, sem olhar as fotos de novo (bem mais barato).
+INDEX_PROMPT = """Você é o editor de vídeo de um criador de conteúdo. Esta live já foi mapeada antes: você recebe o ÍNDICE dela,
+uma lista de trechos com início e fim em segundos e o que acontece em cada um, feita por quem viu as fotos.
+
+Sua tarefa é escolher, para o NOVO pedido, quais trechos do índice usar (usar=true), antes da edição fina.
+- "o_que_ignorar" é regra absoluta e vence o resto do pedido.
+- Use só os horários do índice. Pode juntar trechos vizinhos do mesmo momento em um só.
+- Se o índice não tiver nada que atenda ao pedido, devolva todos com usar=false e diga no resumo o que faltou.
+- descricao: o que acontece, em poucas palavras. motivo: por que entra ou sai.
 """
 
 MAP_SCHEMA: dict = {
