@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h4 class="fw-bold mb-3">Seu vídeo está pronto 🎉</h4>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="player result {% if aspect == '9:16' %}vertical{% endif %} mb-3"><video src="{{ video_url }}" controls playsinline></video></div>
+    <a class="btn btn-pj w-100" href="{{ video_url }}" download="{{ video_name }}">⬇ Baixar vídeo</a>
+    <div class="pj-card mt-4">
+      {% if pub.titles %}
+      <div class="label">Títulos sugeridos</div>
+      {% for t in pub.titles %}
+      <div class="copy-row"><span>{{ t }}</span><button class="btn btn-link link p-0" data-copy="{{ t }}">copiar</button></div>
+      {% endfor %}
+      {% endif %}
+      {% if pub.description %}
+      <div class="d-flex justify-content-between mt-3"><div class="label">Descrição</div><button class="btn btn-link link p-0 copy" data-copy-from="#descricao">copiar</button></div>
+      <textarea id="descricao" class="form-control small" rows="7" readonly>{{ pub.description }}</textarea>
+      {% endif %}
+    </div>
+    {% for note in notes %}<p class="small muted mt-2 mb-0">ℹ️ {{ note }}</p>{% endfor %}
+  </div>
+  <div class="col-lg-6"><div id="capas">{% include "_capas.html" %}</div></div>
+</div>
+<p class="text-center mt-5"><a class="link" href="/">+ Fazer outro vídeo</a></p>
+{% endblock %}

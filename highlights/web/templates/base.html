@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-br" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pajau</title>
+  <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/pajau.css" rel="stylesheet">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/pajau.js" defer></script>
+</head>
+<body>
+  <nav class="navbar px-3 px-md-4 py-3">
+    <a href="/" class="brand">🎬 Pa<span>jau</span></a>
+    <span class="ai-badge{% if ai_warning %} warn{% endif %}">{{ ai_label }}</span>
+  </nav>
+  <main class="container pb-5" style="max-width: 1120px">
+    {% if step %}
+    <div class="steps">
+      {% for label in ["Pedido", "Conferir", "Pronto"] %}
+        {% if not loop.first %}<div class="bar"></div>{% endif %}
+        <div class="s {% if loop.index < step %}done{% elif loop.index == step %}on{% endif %}">
+          <b>{% if loop.index < step %}✓{% else %}{{ loop.index }}{% endif %}</b><span>{{ label }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if ai_warning %}<div class="alert alert-warning mx-auto" style="max-width: 720px">⚠️ {{ ai_warning }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

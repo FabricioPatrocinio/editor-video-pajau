@@ -1,0 +1,15 @@
+{% if not job %}
+  <div class="alert alert-warning text-start">Esta tarefa não existe mais (o Pajau foi reiniciado?). <a class="link" href="/">Voltar ao início</a></div>
+{% elif job.error %}
+  <div class="alert alert-danger text-start mb-3"><b>Não deu certo:</b> {{ job.error }}</div>
+  <a class="btn btn-ghost" href="/">Voltar e tentar de novo</a>
+{% else %}
+  <div class="progress mb-4" style="height: 8px"><div class="progress-bar" style="width: {{ (job.fraction * 100)|round|int }}%"></div></div>
+  <ul class="check text-start mx-auto">
+    {% for name, state in job.step_states() %}
+    <li class="{{ state }}">{{ "✅" if state == "feito" else "⏳" if state == "agora" else "○" }} {{ name }}</li>
+    {% endfor %}
+  </ul>
+  <small class="muted d-block">{{ job.message }}</small>
+  <small class="muted">{{ job.elapsed }}</small>
+{% endif %}

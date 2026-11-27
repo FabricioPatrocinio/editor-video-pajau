@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-3">
+  <h4 class="fw-bold mb-1">Confira os trechos</h4>
+  <p class="muted mb-0">{{ review["items"]|length }} trechos escolhidos pela IA. Clique para ver e desligue o que não quiser.</p>
+  {% if review.summary %}<p class="small muted mt-2 mb-0 summary clamp" title="Clique para ver tudo" onclick="this.classList.toggle('clamp')">{{ friendly_reason(review.summary) }}</p>{% endif %}
+</div>
+
+{% if missing %}
+<form method="post" action="/conferir/{{ quote(name) }}/religar" class="alert alert-warning d-flex flex-wrap gap-2 align-items-center">
+  <span>A live desta análise mudou de lugar. Cole o caminho atual:</span>
+  <input class="form-control form-control-sm flex-grow-1" name="caminho" style="min-width: 260px" placeholder="/home/voce/Vídeos/live.mp4">
+  <button class="btn btn-sm btn-pj">Religar</button>
+</form>
+{% else %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="pj-card p-2 clip-list">
+      {% for item in review["items"] %}{% set index = loop.index0 %}{% include "_clip.html" %}{% endfor %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div id="player" hx-get="/conferir/{{ quote(name) }}/trecho/0" hx-trigger="load">
+      <div class="player-wait"><div class="spinner-border pj-spin"></div></div>
+    </div>
+  </div>
+</div>
+<div class="dock text-center"><div id="gen">{% include "_genbtn.html" %}</div></div>
+{% endif %}
+{% endblock %}

@@ -240,7 +240,8 @@ def video_path(output: Path) -> str:
     return json.loads((output / "project.json").read_text(encoding="utf-8"))["video_path"]
 
 
-def export_plan(output: Path, items: list[PlanItem] | list[dict], aspect: str) -> Path:
+def export_plan(output: Path, items: list[PlanItem] | list[dict], aspect: str, shorts: dict | None = None,
+                notes: list[str] | None = None, progress=None) -> Path:
     from .export.ffmpeg import export_cuts
     from .export.transitions import join_with_transitions
 
@@ -251,7 +252,12 @@ def export_plan(output: Path, items: list[PlanItem] | list[dict], aspect: str) -
     cuts = [Cut(start=float(row["start"]), end=float(row["end"]), score=float(row.get("confidence", 1.0))) for row in rows]
 
     stamp = datetime.now().strftime("%H%M%S")
-    clips = export_cuts(project["video_path"], cuts, output / f"clips-{stamp}", aspect, "precise")
+    if aspect == "9:16" and shorts is None:
+        from .export.shorts import load_settings
+        shorts = load_settings()
+    focuses = [float(row.get("focus", 0.5)) for row in rows]
+    clips = export_cuts(project["video_path"], cuts, output / f"clips-{stamp}", aspect, "precise",
+                        focuses=focuses, shorts=shorts, notes=notes, progress=progress)
     return join_with_transitions(clips, [row.get("transition", "corte") for row in rows], output / f"video-final-{stamp}.mp4")
 
 
@@ -330,6 +336,9 @@ def publication_text(publication: dict, items: list[dict], aspect: str) -> str:
     hashtags = " ".join(publication.get("hashtags", []))
     if hashtags:
         lines += ["", hashtags]
+    covers = [c for c in publication.get("covers", []) if isinstance(c, dict) and c.get("text")]
+    if covers:
+        lines += ["", "## Ideias de capa", ""] + [f"{i}. {c['text']} — {c.get('why', '')}" for i, c in enumerate(covers, 1)]
     return "\n".join(lines)
 
 
@@ -338,3 +347,31 @@ def write_publication(output: Path, publication: dict, items: list[dict], aspect
     if text:
         (output / "publicacao.md").write_text(text + "\n", encoding="utf-8")
     return text
+
+
+def make_publication_covers(output: Path, publication: dict, items: list[dict], aspect: str,
+                            notes: list[str] | None = None) -> list[dict]:
+    """3 capas. A IA escolhe as cenas olhando as 12 mais fortes (uma imagem só, ~2 mil tokens);
+    desligue com PAJAU_CAPA_IA=false. Sem IA, usa as ideias de capa que vieram no plano."""
+    from .ai.config import env_flag
+    from .export.covers import make_covers, scene_candidates
+    notes = notes if notes is not None else []
+    video, folder = video_path(output), output / "capas"
+    ideas = (publication or {}).get("covers") or []
+    if env_flag("PAJAU_CAPA_IA", True):
+        try:
+            scenes = scene_candidates(video, items, folder / "cenas")
+            if scenes:
+                from .ai.covers_ai import pick_covers
+                titles = (publication or {}).get("titles") or []
+                picked, usage = pick_covers(scenes, folder / "cenas", titles[0] if titles else "")
+                if picked:
+                    ideas = picked
+                    notes.append(f"Capas escolhidas pela IA · {usage}")
+        except Exception as error:
+            notes.append(f"Capas feitas sem a IA ({error})")
+    try:
+        return make_covers(video, ideas, items, folder, aspect)
+    except Exception as error:
+        notes.append(f"Não deu para montar as capas: {error}")
+        return []

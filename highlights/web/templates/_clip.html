@@ -1,0 +1,13 @@
+<div class="clip{% if index == selected %} sel{% endif %}{% if index not in review.kept %} off{% endif %}" id="clip-{{ index }}">
+  <img src="/conferir/{{ quote(name) }}/miniatura/{{ index }}.jpg" loading="lazy" alt=""
+       hx-get="/conferir/{{ quote(name) }}/trecho/{{ index }}" hx-target="#player" data-select>
+  <div class="flex-grow-1 info" hx-get="/conferir/{{ quote(name) }}/trecho/{{ index }}" hx-target="#player" data-select>
+    <div class="t">{{ item.chapter or item.kind }}</div>
+    <small>{{ time_text(item.start) }} · {{ (item.end - item.start)|round|int }} s</small>
+  </div>
+  <div class="form-check form-switch m-0" title="Entra no vídeo?">
+    <input class="form-check-input" type="checkbox" {% if index in review.kept %}checked{% endif %}
+           hx-post="/conferir/{{ quote(name) }}/trecho/{{ index }}/alternar" hx-target="#clip-{{ index }}" hx-swap="outerHTML">
+  </div>
+</div>
+{% if oob %}<div id="gen" hx-swap-oob="true">{% include "_genbtn.html" %}</div>{% endif %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="pj-card mx-auto text-center" style="max-width: 560px">
+  <div class="spinner-border mb-3 pj-spin"></div>
+  <h4 class="fw-bold">{{ job.title }}…</h4>
+  <p class="muted">Pode deixar esta aba aberta.</p>
+  <div hx-get="/progresso/{{ job_id }}/estado" hx-trigger="load, every 1s" hx-swap="innerHTML">
+    {% include "_progresso.html" %}
+  </div>
+</div>
+{% endblock %}

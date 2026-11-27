@@ -83,3 +83,28 @@ def transcribe_windows(
             pieces.append(f"[t={start + segment.start:.0f}] {spoken}" if with_times else spoken)
         texts.append(("\n" if with_times else " ").join(pieces)[:max_chars])
     return texts
+
+
+def transcribe_words(video: str | Path, start: float, end: float) -> list[tuple[float, float, str]]:
+    """Palavras faladas num trecho do vídeo, com tempo relativo ao início do trecho. Para a legenda."""
+    import shutil
+    import subprocess
+
+    ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+    raw = subprocess.run([ffmpeg, "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(video),
+                          "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if samples.size == 0:
+        return []
+    language = os.getenv("PAJAU_WHISPER_LANGUAGE", "pt").strip() or None
+    segments, _ = _load_model().transcribe(samples, language=language, vad_filter=True, beam_size=1,
+                                           word_timestamps=True)
+    words = []
+    for segment in segments:
+        if _is_hallucination(segment.text):
+            continue
+        for word in segment.words or []:
+            text = word.word.strip()
+            if text:
+                words.append((float(word.start), float(word.end), text))
+    return words

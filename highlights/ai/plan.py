@@ -28,6 +28,13 @@ class Candidate:
     description: str = ""
 
 
+def _focus(value) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
 @dataclass
 class PlanItem:
     id: str
@@ -39,6 +46,7 @@ class PlanItem:
     kind: str
     transition: str = "corte"
     chapter: str = ""
+    focus: float = 0.5  # onde está a ação na largura da tela (0 = esquerda, 1 = direita), para o Short
 
 
 @dataclass
@@ -153,6 +161,7 @@ def _validate(result: dict, candidates: list[Candidate], target_duration: float)
             kind=str(raw.get("kind", raw.get("tipo", "momento_interessante")))[:80],
             transition=raw.get("transition") if raw.get("transition") in TRANSITIONS else "corte",
             chapter=str(raw.get("chapter", ""))[:80],
+            focus=_focus(raw.get("focus")),
         ))
         total += end - start
     return plan

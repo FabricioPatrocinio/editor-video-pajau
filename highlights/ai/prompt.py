@@ -50,7 +50,16 @@ Publicação (campo "publication"), para o vídeo montado, em português do Bras
   acontece no vídeo e convide a comentar ou acompanhar as lives. Não escreva capítulos nem horários,
   eles são gerados à parte.
 - "hashtags": 3 a 6, sem espaço, começando com #.
+- "covers": 3 ideias de capa diferentes entre si. Cada uma tem:
+  "time": o segundo exato de uma foto que você viu de um trecho aprovado (use o t= quando a foto mostrar;
+  senão, o início, o meio ou o fim do candidato). Prefira cena com ação clara, rosto ou reação, cores fortes
+  e o personagem ou boss visível. Nunca menu, inventário, loading, tela de morte ou cena escura demais.
+  "text": 2 a 5 palavras que vão em letras grandes sobre a foto, despertando curiosidade em quem vê esse
+  tipo de vídeo, sem mentir e sem repetir o título.
+  "why": uma frase curta: por que essa cena chama atenção do público desse vídeo.
 - Em cada trecho aprovado, "chapter" é um nome curto de capítulo (ex.: "Boss 1: a virada").
+- Em cada trecho aprovado, "focus" diz onde está a ação na largura da tela, de 0 (esquerda) a 1 (direita),
+  olhando as fotos. Serve para cortar o vídeo na vertical sem perder o que importa. Na dúvida, 0.5.
 Siga o estilo do canal se ele vier nos dados.
 
 Escreva os motivos em português, em uma frase curta e concreta (o que acontece no trecho e por que
@@ -79,8 +88,10 @@ PLAN_SCHEMA: dict = {
                     "confidence": {"type": "number"},
                     "transition": {"type": "string", "enum": ["corte", "fade", "fade_preto", "deslizar"]},
                     "chapter": {"type": "string"},
+                    "focus": {"type": "number"},
                 },
-                "required": ["id", "start", "end", "order", "kind", "reason", "confidence", "transition", "chapter"],
+                "required": ["id", "start", "end", "order", "kind", "reason", "confidence", "transition", "chapter",
+                             "focus"],
                 "additionalProperties": False,
             },
         },
@@ -106,8 +117,17 @@ PLAN_SCHEMA["properties"]["publication"] = {
         "titles": {"type": "array", "items": {"type": "string"}},
         "description": {"type": "string"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
+        "covers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"time": {"type": "number"}, "text": {"type": "string"}, "why": {"type": "string"}},
+                "required": ["time", "text", "why"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["titles", "description", "hashtags"],
+    "required": ["titles", "description", "hashtags", "covers"],
     "additionalProperties": False,
 }
 
@@ -115,8 +135,9 @@ JSON_INSTRUCTION = """\
 Responda somente com um objeto JSON válido, sem texto antes ou depois, neste formato:
 {"summary": "...", "approved": [{"id": "...", "start": 0, "end": 0, "order": 1, "kind": "...",
 "reason": "...", "confidence": 0.0,
-"transition": "corte", "chapter": "..."}], "rejected": [{"id": "...", "reason": "..."}],
-"publication": {"titles": ["...", "...", "..."], "description": "...", "hashtags": ["#..."]}}
+"transition": "corte", "chapter": "...", "focus": 0.5}], "rejected": [{"id": "...", "reason": "..."}],
+"publication": {"titles": ["...", "...", "..."], "description": "...", "hashtags": ["#..."],
+"covers": [{"time": 0, "text": "...", "why": "..."}]}}
 """
 
 
