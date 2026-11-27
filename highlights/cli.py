@@ -257,7 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
 def launch_ui(host: str, port: int) -> int:
     from .ui.gradio_app import build_app
     app = build_app()
-    app.launch(server_name=host, server_port=port)
+    app.launch(server_name=host, server_port=port, inbrowser=True)
     return 0
 
 
