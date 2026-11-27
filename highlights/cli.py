@@ -109,7 +109,7 @@ def analyze(args: argparse.Namespace) -> int:
 
 def auto(args: argparse.Namespace) -> int:
     from .ai.config import check_ai_ready, load_ai_settings
-    from .pipeline import export_plan, find_candidates, plan_with_ai
+    from .pipeline import analysis_mode, export_plan, find_candidates, find_segments_with_map, plan_with_ai
 
     settings = load_ai_settings()
     problem = check_ai_ready(settings)
@@ -121,22 +121,27 @@ def auto(args: argparse.Namespace) -> int:
         return 1
 
     target = args.minutes * 60
-    print("1/3 Procurando candidatos na live...")
-    output, candidates = find_candidates(
-        args.url or args.input, target, [list(item) for item in args.ignore or []], url=bool(args.url),
-        progress=lambda fraction, text: print(f"    {text}"),
-    )
+    ignore = [list(item) for item in args.ignore or []]
+    report = lambda fraction, text: print(f"    {text}")
+    print("1/3 Procurando os trechos na live...")
+    if analysis_mode() == "mapa" and args.input:
+        output, candidates, summary = find_segments_with_map(args.input, args.briefing, args.avoid, target, ignore, report)
+        print(f"    Mapa: {summary}")
+    else:
+        output, candidates = find_candidates(args.url or args.input, target, ignore, url=bool(args.url), progress=report)
     if not candidates:
-        print("Nenhum candidato encontrado.")
+        print("Nenhum trecho encontrado.")
         return 1
 
     print(f"2/3 {settings.label} analisando {len(candidates)} candidatos...")
-    plan = plan_with_ai(output, candidates, args.briefing, args.avoid, target)
+    plan = plan_with_ai(output, candidates, args.briefing, args.avoid, target, args.aspect)
     print(f"\n{plan.summary}\n")
     for index, item in enumerate(plan.items, 1):
         print(f"  {index:02d}. {item.start:8.1f}s - {item.end:8.1f}s  [{item.kind}] ({item.transition}) {item.reason}")
     print(f"\nUso: {plan.usage}")
     print(f"Plano salvo em {output / 'ia-plan.json'}")
+    if (output / "publicacao.md").exists():
+        print(f"\n{(output / 'publicacao.md').read_text(encoding='utf-8')}")
 
     if args.plan_only or not plan.items:
         return 0
@@ -192,6 +197,10 @@ def gerar(args: argparse.Namespace) -> int:
     for index, item in enumerate(plan.items, 1):
         print(f"  {index:02d}. {item.start:8.1f}s - {item.end:8.1f}s  [{item.kind}] ({item.transition}) {item.reason}")
     print(f"Vídeo final: {export_plan(folder, plan.items, args.aspect)}")
+    from .pipeline import write_publication
+    text = write_publication(folder, result.get("publication") or {}, [asdict(i) for i in plan.items], args.aspect)
+    if text:
+        print(f"\n{text}")
     return 0
 
 

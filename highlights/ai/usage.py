@@ -31,11 +31,14 @@ class Usage:
     cache_read: int = 0
     cache_write: int = 0
     subscription: bool = False
+    equivalent_usd: float | None = None  # quanto custaria na API (informado pelo Claude Code)
 
     @property
     def text(self) -> str:
         if self.subscription:
             cost = "pela assinatura, sem custo extra"
+            if self.equivalent_usd:
+                cost += f" (equivale a ~US$ {self.equivalent_usd:.2f} na API)"
         else:
             cost = f"~US$ {self.cost_usd:.3f}" if self.cost_usd is not None else "custo não estimado"
         number = lambda value: f"{value:,}".replace(",", ".")

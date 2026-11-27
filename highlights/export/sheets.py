@@ -37,3 +37,45 @@ def build_sheets(candidates: list, output_dir: Path) -> list[tuple[str, Path]]:
         sheet.save(path, quality=80)
         sheets.append((f"Folha {offset // PER_SHEET + 1}: {ids} (cada linha = início, meio e fim do trecho)", path))
     return sheets
+
+
+def _clock(seconds: float) -> str:
+    total = int(seconds)
+    return f"{total // 3600}:{total % 3600 // 60:02d}:{total % 60:02d}"
+
+
+def build_timeline_sheets(
+    frames: list[tuple[float, Path]],
+    output_dir: Path,
+    title: str = "",
+    cols: int = 6,
+    rows: int = 8,
+    thumb: tuple[int, int] = (256, 144),
+) -> list[tuple[str, Path]]:
+    """Grade de fotos com o segundo de cada uma (ex.: "t=5020 1:23:40"), em ordem de tempo."""
+    from PIL import Image, ImageDraw
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    label_h = 16
+    per_sheet = cols * rows
+    sheets = []
+    for offset in range(0, len(frames), per_sheet):
+        group = frames[offset:offset + per_sheet]
+        lines = (len(group) + cols - 1) // cols
+        sheet = Image.new("RGB", (cols * thumb[0], lines * (thumb[1] + label_h)), "black")
+        draw = ImageDraw.Draw(sheet)
+        for index, (second, path) in enumerate(group):
+            x = (index % cols) * thumb[0]
+            y = (index // cols) * (thumb[1] + label_h)
+            draw.text((x + 4, y + 2), f"t={second:.0f}  {_clock(second)}", fill="yellow")
+            if Path(path).exists():
+                sheet.paste(Image.open(path).convert("RGB").resize(thumb), (x, y + label_h))
+        number = offset // per_sheet + 1
+        path = output_dir / f"{title or 'mapa'}-{number:02d}.jpg"
+        sheet.save(path, quality=80)
+        sheets.append((
+            f"{title or 'Mapa'} folha {number}: de t={group[0][0]:.0f} ({_clock(group[0][0])}) "
+            f"a t={group[-1][0]:.0f} ({_clock(group[-1][0])}), da esquerda para a direita, de cima para baixo",
+            path,
+        ))
+    return sheets

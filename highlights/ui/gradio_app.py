@@ -9,7 +9,8 @@ from ..ai.config import check_ai_ready, load_ai_settings
 from ..ai.style import MOMENT_TYPES, ORDERS, VIDEO_TYPES, compose_briefing, load_style, record_feedback, save_style_text
 from ..analysis.transcribe import transcription_enabled
 from ..export.transitions import TRANSITIONS, make_preview
-from ..pipeline import export_plan, find_candidates, load_candidates, plan_with_ai, video_path
+from ..pipeline import (analysis_mode, export_plan, find_candidates, find_segments_with_map, load_candidates,
+                        muted_warning, plan_with_ai, publication_text, video_path, write_publication)
 
 STEP = 5.0
 
@@ -53,7 +54,8 @@ def _status_text() -> str:
     if problem:
         return f"⚠️ {problem}"
     transcription = "ligada" if transcription_enabled() else "desligada"
-    return f"IA: **{settings.label}** · transcrição: **{transcription}** · limite: **US$ {settings.daily_limit_usd:.2f}/dia**"
+    mode = "mapa da live inteira" if analysis_mode() == "mapa" else "picos de áudio"
+    return f"IA: **{settings.label}** · análise: **{mode}** · transcrição: **{transcription}**"
 
 
 def _overview(plan: list[dict], accepted: list[str] | None = None) -> str:
@@ -172,28 +174,37 @@ def build_app():
             export_button = gr.Button("Gerar vídeo só com os que gostei", variant="primary")
             result = gr.Video(label="Vídeo final")
             result_path = gr.Markdown("")
+            publication_box = gr.Textbox(label="📣 Título e descrição para publicar", lines=12,
+                                         buttons=["copy"], interactive=False)
+            publication_state = gr.State({})
 
         view_outputs = [title, preview, reason, transcript, transition]
-        plan_outputs = [status, overview, *view_outputs, output_state, plan_state, transcripts_state, index_state, accepted_state]
-        request_inputs = [game, video_type, moments, order, extra, avoid, duration]
+        plan_outputs = [status, overview, *view_outputs, output_state, plan_state, transcripts_state, index_state,
+                        accepted_state, publication_state, publication_box]
+        request_inputs = [game, video_type, moments, order, extra, avoid, duration, aspect]
 
-        def _plan(output, candidates, game, vtype, moments, order, extra, avoid, minutes, progress):
+        def _plan(output, candidates, game, vtype, moments, order, extra, avoid, minutes, aspect_value, progress):
             settings = load_ai_settings()
             progress(0.92, f"{settings.label} montando o plano...")
             briefing = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
-            plan = plan_with_ai(Path(output), candidates, briefing, avoid or "", float(minutes or 10) * 60)
+            plan = plan_with_ai(Path(output), candidates, briefing, avoid or "", float(minutes or 10) * 60, aspect_value)
             data = [asdict(item) for item in plan.items]
             transcripts = {c.id: c.transcript for c in candidates}
+            warning = muted_warning(Path(output))
             message = (
+                (f"**{warning}**\n\n" if warning else "") +
                 f"✅ {len(candidates)} candidatos analisados, {len(data)} trechos escolhidos. Veja a aba **2. Revisar e gerar**.\n\n"
                 f"{plan.summary}\n\n_{plan.usage}_"
             )
-            return (message, _overview(data), *_view(str(output), data, transcripts, 0), str(output), data, transcripts, 0, [])
+            text = publication_text(plan.publication, data, aspect_value)
+            return (message, _overview(data), *_view(str(output), data, transcripts, 0), str(output), data, transcripts, 0, [],
+                    plan.publication, text)
 
         def _fail(message, output=""):
-            return (message, "Ainda não existe um plano.", "", None, "", "", "corte", output, [], {}, 0, [])
+            return (message, "Ainda não existe um plano.", "", None, "", "", "corte", output, [], {}, 0, [], {}, "")
 
-        def run_analysis(video_file, video_text, ignore_text, game, vtype, moments, order, extra, avoid, minutes, progress=gr.Progress()):
+        def run_analysis(video_file, video_text, ignore_text, game, vtype, moments, order, extra, avoid, minutes,
+                         aspect_value, progress=gr.Progress()):
             source = (video_text or "").strip().strip("'\"") or _file_path(video_file)
             if source and not Path(source).exists():
                 return _fail(f"Arquivo não encontrado: {source}")
@@ -204,20 +215,28 @@ def build_app():
                 return _fail(problem)
             try:
                 report = lambda fraction, text: progress(fraction * 0.9, desc=text)
-                output, candidates = find_candidates(source, float(minutes or 10) * 60, _parse_intervals(ignore_text), progress=report)
-                if not candidates:
-                    return _fail("Nenhum candidato encontrado na live.", str(output))
-                return _plan(output, candidates, game, vtype, moments, order, extra, avoid, minutes,
+                target = float(minutes or 10) * 60
+                if analysis_mode() == "mapa":
+                    briefing = compose_briefing(game or "", vtype or "", moments or [], order or "", extra or "")
+                    output, candidates, summary = find_segments_with_map(
+                        source, briefing, avoid or "", target, _parse_intervals(ignore_text), progress=report)
+                    if not candidates:
+                        return _fail(f"A IA não achou trechos para o pedido no mapa da live. {summary}", str(output))
+                else:
+                    output, candidates = find_candidates(source, target, _parse_intervals(ignore_text), progress=report)
+                    if not candidates:
+                        return _fail("Nenhum candidato encontrado na live.", str(output))
+                return _plan(output, candidates, game, vtype, moments, order, extra, avoid, minutes, aspect_value,
                              lambda f, t: progress(f, desc=t))
             except Exception as error:
                 return _fail(f"Erro: {error}")
 
-        def replan(output, game, vtype, moments, order, extra, avoid, minutes, progress=gr.Progress()):
+        def replan(output, game, vtype, moments, order, extra, avoid, minutes, aspect_value, progress=gr.Progress()):
             if not output:
                 return _fail("Analise uma live primeiro; depois este botão refaz só o plano.")
             try:
                 return _plan(Path(output), load_candidates(Path(output)), game, vtype, moments, order, extra, avoid,
-                             minutes, lambda f, t: progress(f, desc=t))
+                             minutes, aspect_value, lambda f, t: progress(f, desc=t))
             except Exception as error:
                 return _fail(f"Erro: {error}", output)
 
@@ -247,18 +266,20 @@ def build_app():
             index += 1
             return (*_view(output, plan, transcripts, index), index, accepted, _overview(plan, accepted))
 
-        def export(output, plan, aspect_value, only_ids, progress):
+        def export(output, plan, aspect_value, only_ids, publication, progress):
             if not output or not plan:
-                return None, "Analise uma live primeiro."
+                return None, "Analise uma live primeiro.", gr.skip()
             items = plan if only_ids is None else [item for item in plan if item["id"] in only_ids]
             if not items:
-                return None, "Marque pelo menos um trecho com Gostei."
+                return None, "Marque pelo menos um trecho com Gostei.", gr.skip()
             progress(0.1, desc=f"Cortando {len(items)} trechos e aplicando transições...")
             try:
                 path = export_plan(Path(output), items, aspect_value)
-                return str(path), f"Salvo em `{path}`"
+                # Capítulos refeitos com os trechos que realmente entraram no vídeo.
+                text = write_publication(Path(output), publication, items, aspect_value)
+                return str(path), f"Salvo em `{path}`", text
             except Exception as error:
-                return None, f"Erro: {error}"
+                return None, f"Erro: {error}", gr.skip()
 
         def save_my_style(text):
             save_style_text(text or "")
@@ -280,13 +301,15 @@ def build_app():
             button.click(decide, [output_state, plan_state, transcripts_state, index_state, accepted_state, gr.State(liked)],
                          [*view_outputs, index_state, accepted_state, overview])
 
-        def export_all(output, plan, aspect_value, progress=gr.Progress()):
-            return export(output, plan, aspect_value, None, progress)
+        def export_all(output, plan, aspect_value, publication, progress=gr.Progress()):
+            return export(output, plan, aspect_value, None, publication, progress)
 
-        def export_liked(output, plan, aspect_value, accepted, progress=gr.Progress()):
-            return export(output, plan, aspect_value, accepted, progress)
+        def export_liked(output, plan, aspect_value, accepted, publication, progress=gr.Progress()):
+            return export(output, plan, aspect_value, accepted, publication, progress)
 
-        accept_all.click(export_all, [output_state, plan_state, aspect], [result, result_path])
-        export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state], [result, result_path])
+        accept_all.click(export_all, [output_state, plan_state, aspect, publication_state],
+                         [result, result_path, publication_box])
+        export_button.click(export_liked, [output_state, plan_state, aspect, accepted_state, publication_state],
+                            [result, result_path, publication_box])
 
     return app

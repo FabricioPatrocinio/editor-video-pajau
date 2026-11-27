@@ -69,7 +69,7 @@ def test_plan_is_clamped_ordered_and_respects_duration():
         ],
         "rejected": [{"id": "evento-03", "reason": "repetido"}],
     })
-    plan = build_review_plan(_candidates(), "boss", 115.0, provider=provider)
+    plan = build_review_plan(_candidates(), "boss", 40.0, provider=provider)  # trava = 3x o alvo
 
     assert [item.id for item in plan.items] == ["evento-02", "evento-01"]
     assert (plan.items[0].start, plan.items[0].end) == (100.0, 170.0)  # limitado ao candidato
@@ -129,3 +129,27 @@ def test_request_file_lists_images_for_claude_code(tmp_path):
     path = write_request_file("SISTEMA", [TextPart("dados"), ImagePart(image)], tmp_path / "pedido.md")
     text = path.read_text(encoding="utf-8")
     assert "SISTEMA" in text and "dados" in text and f"[imagem: {image.resolve()}]" in text
+
+
+def test_same_segment_can_be_split_without_overlap():
+    provider = FakeProvider({"summary": "", "rejected": [], "approved": [
+        {"id": "evento-01", "start": 10, "end": 30, "order": 1, "kind": "a", "reason": "", "confidence": 1, "transition": "corte"},
+        {"id": "evento-01", "start": 25, "end": 40, "order": 2, "kind": "b", "reason": "", "confidence": 1, "transition": "corte"},
+        {"id": "evento-01", "start": 50, "end": 80, "order": 3, "kind": "c", "reason": "", "confidence": 1, "transition": "corte"},
+    ]})
+    plan = build_review_plan(_candidates(), "x", 600.0, provider=provider)
+    assert [(i.start, i.end) for i in plan.items] == [(10, 30), (50, 80)]  # pula a morte no meio
+
+
+def test_chapters_discount_transitions_and_publication_text():
+    from highlights.pipeline import chapters, publication_text
+    items = [
+        {"start": 100, "end": 400, "transition": "corte", "chapter": "Boss 1"},
+        {"start": 900, "end": 1000, "transition": "fade_preto", "chapter": "Benkei"},  # 0,8 s de sobreposição
+        {"start": 2000, "end": 2100, "transition": "corte", "chapter": "Vitória"},
+    ]
+    assert chapters(items) == [(0.0, "Boss 1"), (299.2, "Benkei"), (399.2, "Vitória")]
+    pub = {"titles": ["A", "B", "C"], "description": "Desc.", "hashtags": ["#onimusha"]}
+    text = publication_text(pub, items, "16:9")
+    assert "0:00 Boss 1" in text and "4:59 Benkei" in text and "#onimusha" in text
+    assert "0:00" not in publication_text(pub, items, "9:16")  # Short não tem capítulos

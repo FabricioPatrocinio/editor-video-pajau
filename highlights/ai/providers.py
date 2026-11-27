@@ -41,7 +41,8 @@ Part = TextPart | ImagePart
 class AIProvider(Protocol):
     settings: AISettings
 
-    def generate_plan(self, system: str, parts: list[Part]) -> tuple[dict, Usage]: ...
+    def generate_plan(self, system: str, parts: list[Part], schema: dict = PLAN_SCHEMA,
+                      json_hint: str = JSON_INSTRUCTION) -> tuple[dict, Usage]: ...
 
 
 def _decode_json(text: str) -> dict:
@@ -85,9 +86,10 @@ class ClaudeProvider:
                 })
         return content
 
-    def generate_plan(self, system: str, parts: list[Part]) -> tuple[dict, Usage]:
+    def generate_plan(self, system: str, parts: list[Part], schema: dict = PLAN_SCHEMA,
+                      json_hint: str = JSON_INSTRUCTION) -> tuple[dict, Usage]:
         anthropic = self._anthropic
-        output_config: dict = {"format": {"type": "json_schema", "schema": PLAN_SCHEMA}}
+        output_config: dict = {"format": {"type": "json_schema", "schema": schema}}
         if self.settings.effort:
             output_config["effort"] = self.settings.effort
 
@@ -153,7 +155,8 @@ class OpenAIProvider:
     def __init__(self, settings: AISettings):
         self.settings = settings
 
-    def generate_plan(self, system: str, parts: list[Part]) -> tuple[dict, Usage]:
+    def generate_plan(self, system: str, parts: list[Part], schema: dict = PLAN_SCHEMA,
+                      json_hint: str = JSON_INSTRUCTION) -> tuple[dict, Usage]:
         import httpx
 
         content: list[dict] = []
@@ -162,7 +165,7 @@ class OpenAIProvider:
                 content.append({"type": "input_text", "text": part.text})
             else:
                 content.append({"type": "input_image", "image_url": f"data:{part.media_type};base64,{part.b64()}"})
-        content.append({"type": "input_text", "text": JSON_INSTRUCTION})
+        content.append({"type": "input_text", "text": json_hint})
 
         endpoint = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/") + "/responses"
         try:
@@ -202,7 +205,7 @@ class OpenAIProvider:
         return _decode_json("".join(texts)), usage
 
 
-def write_request_file(system: str, parts: list[Part], path: Path) -> Path:
+def write_request_file(system: str, parts: list[Part], path: Path, json_hint: str = JSON_INSTRUCTION) -> Path:
     """Pedido completo em Markdown, com os caminhos das imagens. Usado pelo Claude Code."""
     lines = [system, "", "## Dados", ""]
     for part in parts:
@@ -210,7 +213,7 @@ def write_request_file(system: str, parts: list[Part], path: Path) -> Path:
             lines += [part.text, ""]
         else:
             lines += [f"[imagem: {part.path.resolve()}]", ""]
-    lines += ["## Resposta", "", JSON_INSTRUCTION]
+    lines += ["## Resposta", "", json_hint]
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
@@ -221,21 +224,23 @@ class ClaudeCodeProvider:
     def __init__(self, settings: AISettings):
         self.settings = settings
 
-    def generate_plan(self, system: str, parts: list[Part]) -> tuple[dict, Usage]:
+    def generate_plan(self, system: str, parts: list[Part], schema: dict = PLAN_SCHEMA,
+                      json_hint: str = JSON_INSTRUCTION) -> tuple[dict, Usage]:
         import shutil
         import subprocess
         import tempfile
 
         images = [part.path for part in parts if isinstance(part, ImagePart)]
         folder = images[0].resolve().parent if images else Path(tempfile.mkdtemp(prefix="pajau-"))
-        request = write_request_file(system, parts, folder / "ia-pedido.md")
+        name = "ia-mapa.md" if schema is not PLAN_SCHEMA else "ia-pedido.md"
+        request = write_request_file(system, parts, folder / name, json_hint)
 
         command = [
             shutil.which("claude") or "claude", "-p",
             f"Leia o arquivo {request} e abra cada imagem listada nele com a ferramenta Read. "
             "Depois responda exatamente o que o arquivo pede, no formato JSON do schema.",
             "--output-format", "json",
-            "--json-schema", json.dumps(PLAN_SCHEMA),
+            "--json-schema", json.dumps(schema),
             "--allowedTools", "Read",
             "--add-dir", str(folder),
         ]
@@ -244,9 +249,9 @@ class ClaudeCodeProvider:
         # Sem ANTHROPIC_API_KEY no ambiente, o Claude Code usa o login da assinatura.
         env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
         try:
-            run = subprocess.run(command, cwd=folder, env=env, capture_output=True, text=True, timeout=900)
+            run = subprocess.run(command, cwd=folder, env=env, capture_output=True, text=True, timeout=1800)
         except subprocess.TimeoutExpired as error:
-            raise RuntimeError("O Claude Code demorou mais de 15 minutos. Tente de novo.") from error
+            raise RuntimeError("O Claude Code demorou mais de 30 minutos. Tente de novo.") from error
 
         try:
             data = json.loads(run.stdout)
@@ -267,6 +272,7 @@ class ClaudeCodeProvider:
             cache_read=raw.get("cache_read_input_tokens", 0),
             cache_write=raw.get("cache_creation_input_tokens", 0),
             subscription=True,
+            equivalent_usd=data.get("total_cost_usd"),
         )
         return result, usage
 
